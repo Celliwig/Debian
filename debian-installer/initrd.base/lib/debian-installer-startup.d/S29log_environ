@@ -1,0 +1,55 @@
+#!/bin/sh
+#
+# Log:
+#   ISO hash
+#   Preseed hashes
+#
+# Kernel args (! = default):
+#    celliwig.log_env - Control what to log [none/all!]
+#
+################################################################################
+
+# Load support functions
+#########################
+. /celliwig.installer/functions.sh
+
+# Hash preseed files using given hash function
+###############################################
+hash_preseed () {
+	hash_func="${1}"
+	hash_log="${2}"
+
+	${hash_func} /preseed.cfg >> "${hash_log}"
+	for pfile in `find /preseed/ -type f`; do
+		${hash_func} "${pfile}" >> "${hash_log}"
+	done
+}
+
+# Check if this has been disabled
+##################################
+LOG_ENV=`kernel_arg 'celliwig.log_env' 'all'`
+if [ "${LOG_ENV}" = "none" ]; then
+	echo_log "Log Environment (disabled)"
+	exit 0
+else
+	echo_log "Log Environment"
+fi
+
+LOGFILE="/var/log/celliwig_hash.log"
+
+# ISO Hash
+#####################
+iso_dev=`mount |grep '/cdrom'|sed 's|\(/dev/disk/by-partlabel/.*\) on .*|\1|'`
+echo "ISO Image Hash [${iso_dev}]:" > "${LOGFILE}"
+if [[ "${iso_dev}" != "" ]]; then
+	sha256sum "${iso_dev}" >> "${LOGFILE}"
+	sha512sum "${iso_dev}" >> "${LOGFILE}"
+fi
+echo >> "${LOGFILE}"
+
+# Preseed Hashes
+#####################
+echo "Preseed Hashes:" >> "${LOGFILE}"
+hash_preseed md5sum "${LOGFILE}"
+hash_preseed sha256sum "${LOGFILE}"
+hash_preseed sha512sum "${LOGFILE}"

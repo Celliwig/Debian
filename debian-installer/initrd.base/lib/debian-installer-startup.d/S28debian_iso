@@ -1,0 +1,120 @@
+#!/bin/sh
+#
+# Mount ISO image on /cdrom
+#
+# Kernel args:
+#    celliwig.iso.name - Distro name [debian]
+#    celliwig.iso.version - Distro version [*]
+#    celliwig.iso.label - ISO full label [N/A]
+#
+################################################################################
+
+# Load support functions
+#########################
+. /usr/share/debconf/confmodule
+. /celliwig.installer/functions.sh
+
+error_exit () {
+	echo_log "   ${1}"
+	exit
+}
+
+echo_log "ISO Mount"
+
+DIR_CDROM="/cdrom"
+PATH_PARTLABEL="/dev/disk/by-partlabel/"
+
+# Check for kernel args
+########################
+ISO_NAME=`kernel_arg 'celliwig.iso.name' debian`
+ISO_VERSION=`kernel_arg 'celliwig.iso.version' '*'`
+ISO_LABEL=`kernel_arg 'celliwig.iso.label'`
+
+# Get Debian architecture
+##########################
+DEBIAN_ARCH=`debian_arch`
+if [ ${?} -eq 0 ]; then
+	echo_log "   Arch: ${DEBIAN_ARCH}"
+else
+	echo_log "   Arch: ${DEBIAN_ARCH}"
+	exit 1
+fi
+
+
+# Create directories
+#####################
+echo_log "   Creating directories"
+if [ ! -d "${DIR_CDROM}" ]; then
+	# Directory doesn't exist, so create
+	mkdir "${DIR_CDROM}" >/dev/null 2>&1
+	if [ ${?} -ne 0 ]; then error_exit "   Could not create - ${DIR_CDROM}"; fi
+else
+	# Directory exists, so try umounting anything on it
+	umount "${DIR_CDROM}" >/dev/null 2>&1
+fi
+
+# Wait for /dev/disk/by-partlabel to become available
+######################################################
+echon_log "   Waiting for ${PATH_PARTLABEL} "
+retry=10;
+while [ ${retry} -ne 0 ]; do
+	if [ -d "${PATH_PARTLABEL}" ]; then retry=0; break; fi
+	retry=$((${retry}-1))
+	echo -n "."
+	sleep 1
+done
+echo
+
+# Find ISO image
+#################
+echon_log "   Finding ISO image"
+if [ -n "${ISO_LABEL}" ]; then
+	cmd_find="find ${PATH_PARTLABEL} -maxdepth 1 -name ${ISO_LABEL}"
+else
+	cmd_find="find ${PATH_PARTLABEL} -maxdepth 1 -name ${ISO_NAME}-${ISO_VERSION}-${DEBIAN_ARCH}-DVD-1.iso"
+fi
+retry=5
+iso_image=""
+while [ ${retry} -ne 0 ]; do
+	if [ `${cmd_find} | wc -l` -eq 1 ]; then
+		iso_image=`${cmd_find}`
+		retry=0
+		break
+	fi
+	retry=$((${retry}-1))
+	echo -n "."
+	sleep 1
+done
+echo
+
+# Mount ISO image on /cdrom
+############################
+if [ -n "${iso_image}" ]; then
+	echo_log "      Found: ${iso_image}"
+	mount -t iso9660 "${iso_image}" "${DIR_CDROM}" >/dev/null 2>&1
+	if [ ${?} -ne 0 ]; then error_exit "   Failed to mount ISO image"; fi
+
+	# Set the ISO device path for d-i
+	# Installation fails without this as d-i remounts
+	# installation media to install packages/grub
+	db_set cdrom-detect/cdrom_device "${iso_image}"
+else
+	error_exit "   Failed to find an ISO image";
+fi
+
+# Last few steps in cdrom-detect.postinst
+# However this is not rum when the ISO is pre-mounted
+######################################################
+anna-install apt-mirror-setup || true
+if [ ! -e /cdrom/.disk/base_installable ]; then
+	log "Base system not installable from CD, requesting choose-mirror"
+	anna-install choose-mirror || true
+else
+	anna-install apt-cdrom-setup || true
+
+	# Install <codename>-support udeb (if available).
+	db_get cdrom/codename
+	anna-install $RET-support || true
+fi
+
+exit 0

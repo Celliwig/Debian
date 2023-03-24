@@ -1,0 +1,34 @@
+#!/bin/sh
+#
+# Preseed the kernel image package (if it hasn't been already)
+#
+################################################################################
+
+# Load support functions
+#########################
+. /celliwig.installer/functions.sh
+
+kernel_pkg=""
+case `uname -m` in
+	aarch64)
+		kernel_pkg="arm64"
+		;;
+	armv?l)
+		kernel_pkg="armmp"
+		;;
+	i?86)
+		kernel_pkg="686"
+		;;
+	x86_64)
+		kernel_pkg="amd64"
+		;;
+#	*)
+#		;;
+esac
+
+preseed_arch_file="/preseed/preseed_09_base.${kernel_pkg}.cfg"
+preseed_arch_initrd=$(debconf-get base-installer/kernel/image)
+if [ -z "${preseed_arch_initrd}" ] && [ -n "${kernel_pkg}" ] && [ -f "${preseed_arch_file}" ]; then
+	echo_log "Preseeding kernel package [${kernel_pkg}]"
+	debconf-set-selections "${preseed_arch_file}"
+fi

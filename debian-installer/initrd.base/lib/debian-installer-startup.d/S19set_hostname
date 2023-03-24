@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# Set hostname early for preseed.cfg
+#
+# Kernel args:
+#    hostname - Re-use d-i preseed variable
+#
+################################################################################
+
+# Load support functions
+#########################
+. /celliwig.installer/functions.sh
+
+# Check for hostname on the kernel cmdline
+###########################################
+hostname=`kernel_arg hostname`
+
+# Set hostname
+#####################
+if [ -n "${hostname}" ]; then
+	echo_log "Set hostname [${hostname}]"
+
+	# Set hostname
+	echo "${hostname}" > /proc/sys/kernel/hostname
+fi
