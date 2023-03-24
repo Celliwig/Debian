@@ -1,0 +1,165 @@
+#!/bin/sh
+#
+# Additional modules are needed which aren't available in module udeb packages.
+# Unfortunately udeb only unpacks to the root directory, so just unpack the kernel
+# package. However this runs into a problem when detecting network interfaces; screen
+# goes blank, installer appears to halt. So:
+#
+#   - Move original modules directory to <module_path>.alt
+#   - Unpack kernel package
+#   - Copy required kernel modules
+#   - Move directory <module_path>.alt back
+#
+# Kernel args (! = default):
+#    celliwig.extra_mods - Control what additional modules to copy [none/required!]
+#
+###################################################################################################
+
+# Load support functions
+#########################
+. /celliwig.installer/functions.sh
+
+# Find module in 'src' directory, copy to 'dst' directory
+#
+# This is a basic function, only copies a single module.
+# Some modules are dependent on other modules, so an improvement
+# would be to run modinfo and check the 'depends' field.
+#################################################################
+copy_module () {
+	MODULE_NAME=${1}
+	DIR_SRC=${2}
+	DIR_DST=${3}
+
+# Find module in source directory
+	find_cmd="find ${DIR_SRC} -name ${MODULE_NAME}.ko"
+	if [ `${find_cmd}| wc -l` -eq 1 ]; then
+		FILE_SRC_MODULE=`${find_cmd}`
+		PATH_SRC_MODULE=`dirname "${FILE_SRC_MODULE}"`
+		PATH_DST_MODULE="${DIR_DST}/${PATH_SRC_MODULE#${DIR_SRC}/}"
+
+		# Make directory(s) if necessary
+		mkdir -p "${PATH_DST_MODULE}" >/dev/null 2>&1
+
+		# Copy module to destination
+		cp -a "${FILE_SRC_MODULE}" "${PATH_DST_MODULE}" >/dev/null 2>&1
+		if [ ${?} -ne 0 ]; then
+			echo "Couldn't copy module"
+			exit 1
+		fi
+	else
+		echo "Couldn't find module"
+		exit 1
+	fi
+
+	exit 0
+}
+
+# Check if this has been disabled
+##################################
+EXTRA_MODS=`kernel_arg 'celliwig.extra_mods' 'required'`
+if [ "${EXTRA_MODS}" = "none" ]; then
+	echo_log "Import Extra Modules (disabled)"
+	exit 0
+else
+	echo_log "Import Extra Modules"
+fi
+
+# Required Modules
+#   brd - Block RAM Disk (for RAM disk installation target)
+#   overlay - Overlay FS (combine ISO repo with local packages)
+##################################################################
+MODULE_REQ="brd,overlay"
+PATH_MEDIA="/cdrom/"
+
+# Move current modules directory
+#################################
+PATH_MODULES="/lib/modules/$(uname -r)"
+PATH_MODULES_ALT="${PATH_MODULES}.alt"
+echon_log "   Moving original modules directory"
+mv "${PATH_MODULES}" "${PATH_MODULES_ALT}" >/dev/null 2>&1
+if [ ${?} -eq 0 ]; then
+	echo ": Done"
+else
+	echo ": Failed"
+	exit 1
+fi
+
+# Get kernel version
+#####################
+KRNL_VERSION=`kernel_version`
+echo_log "   Kernel Ver: ${KRNL_VERSION}"
+# Get Debian architecture
+DEBIAN_ARCH=`debian_arch`
+if [ ${?} -eq 0 ]; then
+	echo_log "   Arch: ${DEBIAN_ARCH}"
+else
+	echo_log "   Arch: ${DEBIAN_ARCH}"
+	exit 1
+fi
+
+# Find full kernel package
+###########################
+cmd_find="find ${PATH_MEDIA} -name linux-image-${KRNL_VERSION}-${DEBIAN_ARCH}_*.deb"
+KRNL_DEB=""
+if [ `${cmd_find}| wc -l` -eq 1 ]; then
+	KRNL_DEB=`${cmd_find}`
+	echo_log "   Kernel Pkg: ${KRNL_DEB}"
+else
+	echo_log "   Kernel Pkg: Not Found"
+	exit 1
+fi
+
+# Unpack kernel package
+########################
+echon_log "   Unpack Kernel Package"
+udpkg --unpack "${KRNL_DEB}" >/dev/null 2>&1
+if [ ${?} -eq 0 ]; then
+	echo ": Done"
+else
+	echo ": Failed"
+	exit 1
+fi
+
+# Copy kernel modules
+######################
+echon_log "   Copying needed modules"
+IFS_DEFAULT=${IFS}
+IFS=','
+for needed in ${EXTRA_MODS}; do
+	case "${needed}" in
+		required)
+			# Required modules
+			for module in ${MODULE_REQ}; do
+				IFS=${IFS_DEFAULT}		# Reset IFS back to default (or bad things happen :( )
+				str_err=`copy_module ${module} ${PATH_MODULES} ${PATH_MODULES_ALT}`
+				if [ ${?} -ne 0 ]; then
+					echo ": Failed (${str_err})"
+					exit 1
+				fi
+			done
+			;;
+		*)
+			# Default
+			echo ": Failed (Unknown paramter - ${needed})"
+			exit 1
+			;;
+	esac
+done
+echo ": Done"
+IFS=${IFS_DEFAULT}		# Reset IFS back to default (or bad things happen :( )
+
+# Remove modules directory, and move original back
+###################################################
+echon_log "   Move modules directory back"
+rm -rf "${PATH_MODULES}" >/dev/null 2>&1
+mv "${PATH_MODULES_ALT}" "${PATH_MODULES}" >/dev/null 2>&1
+if [ ${?} -eq 0 ]; then
+	echo ": Done"
+else
+	echo ": Failed"
+	exit 1
+fi
+
+# Make modules available
+#########################
+depmod --all >/dev/null 2>&1
