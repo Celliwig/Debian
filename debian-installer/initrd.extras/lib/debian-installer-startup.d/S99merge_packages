@@ -1,0 +1,173 @@
+#!/bin/sh
+#
+# Need to merge packages from this initrd with the read-only ISO image, this is acheived using
+# overlay FS.
+#
+# Kernel args:
+#    celliwig.merge_pkgs - Control what packages to merge in to debian repo [none/all!]
+#
+###################################################################################################
+
+# Load support functions
+#########################
+. /celliwig.installer/functions.sh
+
+# Check if this has been disabled
+##################################
+MERGE_PKGS=`kernel_arg 'celliwig.merge_pkgs' 'all'`
+if [ "${MERGE_PKGS}" = "none" ]; then
+	echo_log "Merge Packages (disabled)"
+	exit 0
+else
+	echo_log "Merge Packages"
+fi
+
+PATH_MEDIA="/cdrom"
+PATH_DIST_ISO="${PATH_MEDIA}/dists"
+PATH_DIST_ALT="/celliwig.dist"
+PATH_PKGS_ISO="${PATH_MEDIA}/pool/main"
+PATH_PKGS_ALT="/celliwig.packages"
+
+iscompressed_gzip=0
+
+modprobe overlay >/dev/null 2>&1
+if [ ${?} -eq 0 ]; then
+	echon_log "   Merge package directories"
+	# Try to umount it first
+	umount ${PATH_PKGS_ISO} >/dev/null 2>&1
+	mount -t overlay overlay -o lowerdir=${PATH_PKGS_ISO}:${PATH_PKGS_ALT} ${PATH_PKGS_ISO} >/dev/null 2>&1
+	if [ ${?} -eq 0 ]; then
+		echo ": Done"
+	else
+		echo ": Failed"
+		exit 1
+	fi
+
+	echon_log "   Create celliwig repo component directory"
+	cmd_find="find -P ${PATH_DIST_ISO} -type d -name debian-installer"
+	if [ `${cmd_find}| wc -l` -eq 1 ]; then
+		PATH_DIST_ISO_DI=`${cmd_find}`
+		cmd_find="find ${PATH_DIST_ISO_DI} -type f -name Packages*"
+		if [ `${cmd_find}| wc -l` -eq 1 ]; then
+			PATH_DIST_ISO_DI_PKGS=`dirname $(${cmd_find})`
+			# Create alternate path
+			PATH_DIST_ALT_DI_CELLIWIG="${PATH_DIST_ALT}/${PATH_DIST_ISO_DI_PKGS#${PATH_DIST_ISO}/}"
+			# Change component in path from /<...>/debian-installer/ to /celliwig/debian-installer/
+			PATH_DIST_ALT_DI_CELLIWIG=`echo "${PATH_DIST_ALT_DI_CELLIWIG}"| sed -E 's|\/[a-zA-Z0-9]+\/debian-installer\/|\/celliwig\/debian-installer\/|'`
+			# Create directory structure for alternate file
+			mkdir -p ${PATH_DIST_ALT_DI_CELLIWIG} >/dev/null 2>&1
+			rlsfile_name="${PATH_DIST_ALT_DI_CELLIWIG}/Release"
+			# Using the original as a template, create an updated Release file
+			cat ${PATH_DIST_ISO_DI_PKGS}/Release| sed -E -e 's|Origin: [a-zA-Z0-9]+|Origin: Celliwig|' \
+									-e 's|Label: [a-zA-Z0-9]+|Label: Celliwig|' \
+									-e 's|Component: [a-zA-Z0-9]+|Component: celliwig|' > "${rlsfile_name}"
+			if [ ${?} -ne 0 ]; then
+				echo ": Failed to create d-i Release file"
+				exit 1
+			fi
+			rlsfile_size=`tmp=$(wc -c ${rlsfile_name}); echo ${tmp% *}`
+			rlsfile_md5=`tmp=$(md5sum ${rlsfile_name}); echo ${tmp%  *}`
+			rlsfile_sha1=`tmp=$(sha1sum ${rlsfile_name}); echo ${tmp%  *}`
+			rlsfile_sha256=`tmp=$(sha256sum ${rlsfile_name}); echo ${tmp%  *}`
+			rlsfile_sha512=`tmp=$(sha512sum ${rlsfile_name}); echo ${tmp%  *}`
+			# Copy Packages file
+			cp ${PATH_DIST_ALT}/Packages* ${PATH_DIST_ALT_DI_CELLIWIG} >/dev/null 2>&1
+			if [ ${?} -ne 0 ]; then
+				echo ": Failed to copy Packages file"
+				exit 1
+			fi
+			if [ -f ${PATH_DIST_ALT_DI_CELLIWIG}/Packages.gz ]; then
+				iscompressed_gzip=1;
+				# Compressed file
+				pkgfile_gz_name="${PATH_DIST_ALT_DI_CELLIWIG}/Packages.gz"
+				pkgfile_gz_size=`tmp=$(wc -c ${pkgfile_gz_name}); echo ${tmp% *}`
+				pkgfile_gz_md5=`tmp=$(md5sum ${pkgfile_gz_name}); echo ${tmp%  *}`
+				pkgfile_gz_sha1=`tmp=$(sha1sum ${pkgfile_gz_name}); echo ${tmp%  *}`
+				pkgfile_gz_sha256=`tmp=$(sha256sum ${pkgfile_gz_name}); echo ${tmp%  *}`
+				pkgfile_gz_sha512=`tmp=$(sha512sum ${pkgfile_gz_name}); echo ${tmp%  *}`
+				# Uncompressed file
+				pkgfile_name="${PATH_DIST_ALT_DI_CELLIWIG}/Packages"
+				pkgfile_size=`tmp=$(zcat ${pkgfile_gz_name}| wc -c); echo ${tmp% *}`
+				pkgfile_md5=`tmp=$(zcat ${pkgfile_gz_name}| md5sum); echo ${tmp%  *}`
+				pkgfile_sha1=`tmp=$(zcat ${pkgfile_gz_name}| sha1sum); echo ${tmp%  *}`
+				pkgfile_sha256=`tmp=$(zcat ${pkgfile_gz_name}| sha256sum); echo ${tmp%  *}`
+				pkgfile_sha512=`tmp=$(zcat ${pkgfile_gz_name}| sha512sum); echo ${tmp%  *}`
+			else
+				# Uncompressed file
+				pkgfile_name="${PATH_DIST_ALT_DI_CELLIWIG}/Packages"
+				pkgfile_size=`tmp=$(zcat ${pkgfile_name}| wc -c); echo ${tmp% *}`
+				pkgfile_md5=`tmp=$(zcat ${pkgfile_name}| md5sum); echo ${tmp%  *}`
+				pkgfile_sha1=`tmp=$(zcat ${pkgfile_name}| sha1sum); echo ${tmp%  *}`
+				pkgfile_sha256=`tmp=$(zcat ${pkgfile_name}| sha256sum); echo ${tmp%  *}`
+				pkgfile_sha512=`tmp=$(zcat ${pkgfile_name}| sha512sum); echo ${tmp%  *}`
+			fi
+			echo ": Done"
+		else
+			echo ": Failed to find Packages file"
+			exit 1
+		fi
+	else
+		echo ": Failed to find debian-installer"
+		exit 1
+	fi
+
+	echon_log "   Update Release file"
+	cmd_find="find -P ${PATH_DIST_ISO} -maxdepth 2 -type f -name Release"
+	if [ `${cmd_find}| wc -l` -eq 1 ]; then
+		PATH_DIST_ISO_BASE=`dirname $(${cmd_find})`
+		PATH_DIST_ALT_BASE="${PATH_DIST_ALT}/${PATH_DIST_ISO_BASE#${PATH_DIST_ISO}/}"
+		# Ammend Release file
+		# Add celliwig component
+		sed_str_comp="-e s|\(Components: .*\)|\1 celliwig| "
+		# Packages file MD5
+		str_replace=`printf '\\\\n %s %8s %s' ${rlsfile_md5} ${rlsfile_size} "${rlsfile_name#${PATH_DIST_ALT_BASE}/}"`
+		str_replace=`printf '%s\\\\n %s %8s %s' "${str_replace}" ${pkgfile_md5} ${pkgfile_size} "${pkgfile_name#${PATH_DIST_ALT_BASE}/}"`
+		if [ ${iscompressed_gzip} -eq 1 ]; then
+			str_replace=`printf '%s\\\\n %s %8s %s' "${str_replace}" ${pkgfile_gz_md5} ${pkgfile_gz_size} "${pkgfile_gz_name#${PATH_DIST_ALT_BASE}/}"`
+		fi
+		sed_str_md5="-e s|MD5Sum:|MD5Sum:${str_replace}| "
+		# Packages file SHA1
+		str_replace=`printf '\\\\n %s %8s %s' ${rlsfile_sha1} ${rlsfile_size} "${rlsfile_name#${PATH_DIST_ALT_BASE}/}"`
+		str_replace=`printf '%s\\\\n %s %8s %s' "${str_replace}" ${pkgfile_sha1} ${pkgfile_size} "${pkgfile_name#${PATH_DIST_ALT_BASE}/}"`
+		if [ ${iscompressed_gzip} -eq 1 ]; then
+			str_replace=`printf '%s\\\\n %s %8s %s' "${str_replace}" ${pkgfile_gz_sha1} ${pkgfile_gz_size} "${pkgfile_gz_name#${PATH_DIST_ALT_BASE}/}"`
+		fi
+		sed_str_sha1="-e s|SHA1:|SHA1:${str_replace}| "
+		# Packages file SHA256
+		str_replace=`printf '\\\\n %s %8s %s' ${rlsfile_sha256} ${rlsfile_size} "${rlsfile_name#${PATH_DIST_ALT_BASE}/}"`
+		str_replace=`printf '%s\\\\n %s %8s %s' "${str_replace}" ${pkgfile_sha256} ${pkgfile_size} "${pkgfile_name#${PATH_DIST_ALT_BASE}/}"`
+		if [ ${iscompressed_gzip} -eq 1 ]; then
+			str_replace=`printf '%s\\\\n %s %8s %s' "${str_replace}" ${pkgfile_gz_sha256} ${pkgfile_gz_size} "${pkgfile_gz_name#${PATH_DIST_ALT_BASE}/}"`
+		fi
+		sed_str_sha256="-e s|SHA256:|SHA256:${str_replace}| "
+		# Packages file SHA512
+		str_replace=`printf '\\\\n %s %8s %s' ${rlsfile_sha512} ${rlsfile_size} "${rlsfile_name#${PATH_DIST_ALT_BASE}/}"`
+		str_replace=`printf '%s\\\\n %s %8s %s' "${str_replace}" ${pkgfile_sha512} ${pkgfile_size} "${pkgfile_name#${PATH_DIST_ALT_BASE}/}"`
+		if [ ${iscompressed_gzip} -eq 1 ]; then
+			str_replace=`printf '%s\\\\n %s %8s %s' "${str_replace}" ${pkgfile_gz_sha512} ${pkgfile_gz_size} "${pkgfile_gz_name#${PATH_DIST_ALT_BASE}/}"`
+		fi
+		sed_str_sha512="-e s|SHA512:|SHA512:${str_replace}| "
+		# Make an updated copy of the Release file
+		sed "${sed_str_comp}" "${sed_str_md5}" "${sed_str_sha1}" "${sed_str_sha256}" "${sed_str_sha512}" ${PATH_DIST_ISO_BASE}/Release > ${PATH_DIST_ALT_BASE}/Release 2>/dev/null
+		if [ ${?} -eq 0 ]; then
+			echo ": Done"
+		else
+			echo ": Failed to update Release file"
+			exit 1
+		fi
+	else
+		echo ": Failed to find Release file"
+		exit 1
+	fi
+
+	echon_log "   Merge dist directories"
+	# Try to umount it first
+	umount ${PATH_DIST_ISO_BASE} >/dev/null 2>&1
+	mount -t overlay overlay -o lowerdir=${PATH_DIST_ALT_BASE}:${PATH_DIST_ISO_BASE} ${PATH_DIST_ISO_BASE} >/dev/null 2>&1
+	if [ ${?} -eq 0 ]; then
+		echo ": Done"
+	else
+		echo ": Failed"
+		exit 1
+	fi
+fi
