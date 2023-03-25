@@ -1,0 +1,67 @@
+#!/bin/sh
+
+# Check if /boot is on an encrypted filesystem,
+# if so grub config needs updating.
+
+. /lib/partman/lib/base.sh
+
+if [ ! -x /sbin/dmsetup ]; then exit 0; fi
+
+# Find device /boot resides on
+boot_dev=
+for dev in $DEVICES/*; do
+	[ -d "$dev" ] || continue
+	cd $dev
+	open_dialog PARTITIONS
+	while { read_line num id size type fs path name; [ "$id" ]; }; do
+		[ "$fs" != free ] || continue
+		[ -f $id/mountpoint ] || continue
+
+		mountpoint=$(cat ${id}/mountpoint)
+		case ${mountpoint} in
+			/boot)
+				boot_dev=$(cat device)
+				;;
+			/)
+				# /boot takes priority
+				if [ -z "${boot_dev}" ]; then
+					boot_dev=$(cat device)
+				fi
+				;;
+		esac
+	done
+	close_dialog
+done
+
+# Check if boot device is dm device
+dm_crypt_boot=no
+dm_status=$(dmsetup status ${boot_dev} 2>/dev/null)
+if [ ${?} -eq 0 ]; then
+	case $(echo ${dm_status} | cut -d' ' -f3) in
+		linear)
+			# Is this an LVM device
+			lvm_lv=$(lvdisplay -c ${boot_dev} 2>/dev/null)
+			if [ ${?} -ne 0 ]; then exit 0; fi
+			# Get LVM VG name
+			lvm_vg_name=$(echo ${lvm_lv} | cut -d':' -f2)
+			# Get PVs backing VG
+			for lvm_pv_in_vg in `pvdisplay --select vg_name=${lvm_vg_name} -c 2>/dev/null| \
+						sed -E 's|^\s+([^:]+):[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+$|\1|'`; do
+				if [ -n "$(dmsetup status --target crypt ${lvm_pv_in_vg} 2>/dev/null)" ]; then
+					# Boot is encrypted
+					dm_crypt_boot=yes
+				fi
+			done
+			;;
+		crypt)
+			# Boot is encrypted
+			dm_crypt_boot=yes
+			;;
+	esac
+fi
+
+# Update Grub config
+if [ ${dm_crypt_boot} = yes ]; then
+	mkdir -p /target/etc/default/grub.d
+	echo 'GRUB_ENABLE_CRYPTODISK=y' > /target/etc/default/grub.d/encrypted_boot.cfg
+fi

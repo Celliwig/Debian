@@ -1,0 +1,9 @@
+Package: partman-crypto-boot
+Version: 0.1
+Architecture: all
+Maintainer: Celliwig
+Installed-Size: 450
+Depends: cdebconf-udeb, partman-base, di-utils, md-modules, lvm2-udeb, mdadm-udeb, crypto-modules, crypto-dm-modules, cryptsetup-udeb
+Section: debian-installer
+Priority: standard
+Description: Updates grub config if /boot is on an encrypted partition 
