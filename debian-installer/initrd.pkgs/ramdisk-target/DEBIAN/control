@@ -1,0 +1,9 @@
+Package: ramdisk-target
+Version: 0.1
+Architecture: all
+Maintainer: Celliwig
+Installed-Size: 5100
+Depends: libc6-udeb, parted-udeb, libparted-fs-resize0-udeb, libparted2-udeb, cdebconf-udeb, crypto-modules, crypto-dm-modules, cryptsetup-udeb, efi-modules, dosfstools-udeb, md-modules, lvm2-udeb, mdadm-udeb, di-utils-mapdevfs, di-utils
+Section: debian-installer
+Priority: optional
+Description: Create a LVM installation target, backed by a RAM disk.

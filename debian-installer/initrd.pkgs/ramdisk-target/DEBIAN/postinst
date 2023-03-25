@@ -1,0 +1,246 @@
+#!/bin/sh
+#
+# Create a RAM disk based installation target. Need to wrap target in software
+# RAID as d-i doesn't like RAM disks.
+#    - Load RAM disk module
+#    - Partition it: 1 - ESP, 2 - LVM
+#    - Format ESP
+#    - Create LVM layout
+#
+# Kernel args (* = default):
+#    celliwig.ramdisk - none = Disable RAM disk
+#			basic = Basic RAM disks
+#			raid = Prep RAM disk with software RAID
+#			lvm = Create LVM layout on top off software RAID
+#			crypt* = Encrypt LVM volumes
+#    celliwig.lvm.vg - LVM Volume Group name [<hostname>]
+#
+################################################################################
+
+# Load support functions
+#########################
+. /usr/share/debconf/confmodule
+. /celliwig.installer/functions.sh
+
+# Check for kernel args
+########################
+ramdisk_mode=`kernel_arg 'celliwig.ramdisk' "crypt"`
+
+if [ "${ramdisk_mode}" = none ]; then
+	logger -t ramdisk-target "###############################################"
+	logger -t ramdisk-target "#           !!!Disabled RAM disk!!!           #"
+	logger -t ramdisk-target "###############################################"
+	exit 0
+else
+	logger -t ramdisk-target "###############################################"
+	logger -t ramdisk-target "#      Creating RAM disk install target.      #"
+	logger -t ramdisk-target "###############################################"
+fi
+
+# Various constants
+BLKDEV_RAM="/dev/ram0"
+BLKDEV_RAM_ESP="${BLKDEV_RAM}p1"
+BLKDEV_RAM_MAIN="${BLKDEV_RAM}p2"
+BLKDEV_MD_ESP="/dev/md/ESP"
+BLKDEV_MD_MAIN="/dev/md/Debian"
+NAME_CRYPT_MAIN="crypt-ramdisk"
+BLKDEV_CRYPT_MAIN="/dev/mapper/${NAME_CRYPT_MAIN}"
+
+# Get the VG name
+##################
+LVM_VG=`get_vgname`
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Couldn't get LVM VG name"
+	exit 1
+fi
+
+# Check RAM size is greater then 8GB
+#####################################
+ram_size=`free | grep 'Mem:'| sed -E 's|Mem:\s+([0-9]+)\s+.*|\1|'`
+if [ ${ram_size} -lt 8000000 ]; then
+	logger -t ramdisk-target "   Not enough RAM"
+	exit 1
+fi
+
+# Patch grub-installer so that it
+# doesn't update EFI configuration
+#########################################
+GRUB_INSTALL="/usr/bin/grub-installer"
+GRUB_INSTALL_ORIG="${GRUB_INSTALL}.orig"
+mv "${GRUB_INSTALL}" "${GRUB_INSTALL_ORIG}"
+sed 's|grub_install_params=$|grub_install_params=" --no-nvram"|' "${GRUB_INSTALL_ORIG}" > "${GRUB_INSTALL}"
+chmod 755 "${GRUB_INSTALL}"
+
+# Module packages may have been unpacked
+# but the kernel may not know
+#########################################
+depmod --all >/dev/null 2>&1
+
+# Disable any existing LVM VGs
+# Disable any existing RAID
+# And remove brd module
+###############################
+vgchange -an >/dev/null 2>&1
+mdadm --stop ${BLKDEV_MD_ESP} >/dev/null 2>&1
+mdadm --remove ${BLKDEV_MD_ESP} >/dev/null 2>&1
+mdadm --stop ${BLKDEV_MD_MAIN} >/dev/null 2>&1
+mdadm --remove ${BLKDEV_MD_MAIN} >/dev/null 2>&1
+rmmod brd >/dev/null 2>&1
+
+# Load module, create a single ram disk of 6G, with upto 2 partitions
+######################################################################
+logger -t ramdisk-target "   Creating RAM disk"
+modprobe brd rd_size=6144000 max_part=2 rd_nr=1 >/dev/null 2>&1
+if [ ! -e ${BLKDEV_RAM} ]; then
+	logger -t ramdisk-target "   Failed to load brd module"
+	exit 1;
+fi
+
+# Create 2 partitions ESP & LVM Physical Volume
+################################################
+logger -t ramdisk-target "   Create partions [${BLKDEV_RAM}]"
+parted --script ${BLKDEV_RAM} \
+	mklabel gpt \
+	mkpart ESP 1MiB 128MiB \
+	set 1 esp on \
+	mkpart Debian 128MiB 100% >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Partitioning RAM disk failed"
+	exit 1;
+fi
+
+# Stop if just basic RAM disk
+if [ ${ramdisk_mode} = basic ]; then
+	# The RAM disk as it stands is not 'usable' by the d-i
+	# Use udev to create links to an old PATA style device
+	cat >/lib/udev/rules.d/60-fake-persistent-storage.rules <<EOF
+ACTION=="remove", GOTO="fake_persistent_storage_end"
+ENV{UDEV_DISABLE_PERSISTENT_STORAGE_RULES_FLAG}=="1", GOTO="fake_persistent_storage_end"
+
+KERNEL!="ram*", GOTO="fake_persistent_storage_end"
+
+# Fake an old style PATA device using the RAM disk
+KERNEL=="ram[0-9]", ENV{DEVTYPE}=="disk", SYMLINK+="hda"
+KERNEL=="ram[0-9]p[0-9]", ENV{DEVTYPE}=="partition", SYMLINK+="hda\$env{PARTN}"
+
+LABEL="fake_persistent_storage_end"
+EOF
+	udevadm control --reload
+	udevadm trigger
+
+	exit 0;
+fi
+
+# Wrap partitions in RAID so d-i can work with it
+#####################################################
+logger -t ramdisk-target "   Creating MD RAID devices"
+mdadm --create --level=1 --metadata=1.0 --raid-device=2 ${BLKDEV_MD_ESP} ${BLKDEV_RAM_ESP} missing >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Couldn't create MD RAID - ${BLKDEV_MD_ESP}"
+	exit 1;
+fi
+mdadm --create --level=1 --metadata=1.0 --raid-device=2 ${BLKDEV_MD_MAIN} ${BLKDEV_RAM_MAIN} missing >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Couldn't create MD RAID - ${BLKDEV_MD_MAIN}"
+	exit 1;
+fi
+
+# Format ESP partition
+#######################
+logger -t ramdisk-target "   Formating ESP"
+mkfs.fat -F 32 ${BLKDEV_MD_ESP} >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   ESP format failed"
+	exit 1;
+fi
+
+# Stop if just raid RAM disk
+if [ ${ramdisk_mode} = raid ]; then exit 0; fi
+
+# Create encrypted partition
+if [ ${ramdisk_mode} = crypt ]; then
+	# Create encrypted RAID partition
+	logger -t ramdisk-target "   Encrypting RAID partition"
+	echo -n "ThisIsNotSecure" | cryptsetup luksFormat --type luks1 --key-file - ${BLKDEV_MD_MAIN} >/dev/null 2>&1
+	if [ ${?} -ne 0 ]; then
+		logger -t ramdisk-target "   Failed to encrypt RAID partition"
+		exit 1;
+	fi
+	# Create encrypted RAID partition
+	logger -t ramdisk-target "   Opening encrypted partition"
+	echo -n "ThisIsNotSecure" | cryptsetup luksOpen --type luks1 --key-file - ${BLKDEV_MD_MAIN} ${NAME_CRYPT_MAIN} >/dev/null 2>&1
+	if [ ${?} -ne 0 ]; then
+		logger -t ramdisk-target "   Failed to open encrypted RAID partition"
+		exit 1;
+	fi
+	# Encryted, so prep the partition,
+	# and create the Volume Group
+	logger -t ramdisk-target "   LVM - Preparing PV"
+	pvcreate ${BLKDEV_CRYPT_MAIN} >/dev/null 2>&1
+	if [ ${?} -ne 0 ]; then
+		logger -t ramdisk-target "   Failed to prep LVM PV"
+		exit 1;
+	fi
+	logger -t ramdisk-target "   LVM - Preparing VG"
+	vgcreate ${LVM_VG} ${BLKDEV_CRYPT_MAIN} >/dev/null 2>&1
+	if [ ${?} -ne 0 ]; then
+		logger -t ramdisk-target "   Failed to create LVM VG - ${LVM_VG}"
+		exit 1;
+	fi
+else
+	# Unencryted, so just prep the partition,
+	# and create the Volume Group
+	logger -t ramdisk-target "   LVM - Preparing PV"
+	pvcreate ${BLKDEV_MD_MAIN} >/dev/null 2>&1
+	if [ ${?} -ne 0 ]; then
+		logger -t ramdisk-target "   Failed to prep LVM PV"
+		exit 1;
+	fi
+	logger -t ramdisk-target "   LVM - Preparing VG"
+	vgcreate ${LVM_VG} ${BLKDEV_MD_MAIN} >/dev/null 2>&1
+	if [ ${?} -ne 0 ]; then
+		logger -t ramdisk-target "   Failed to create LVM VG - ${LVM_VG}"
+		exit 1;
+	fi
+fi
+
+# Create LVM layout
+#################################
+logger -t ramdisk-target "   LVM - Creating LVs"
+lvcreate -n BOOT -L 500M ${LVM_VG} >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Failed to create LVM LV - BOOT"
+	exit 1;
+fi
+lvcreate -n HOME -L 500M ${LVM_VG} >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Failed to create LVM LV - HOME"
+	exit 1;
+fi
+lvcreate -n OPT -L 50M ${LVM_VG} >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Failed to create LVM LV - OPT"
+	exit 1;
+fi
+lvcreate -n SRV -L 50M ${LVM_VG} >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Failed to create LVM LV - SRV"
+	exit 1;
+fi
+lvcreate -n TMP -L 500M ${LVM_VG} >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Failed to create LVM LV - TMP"
+	exit 1;
+fi
+lvcreate -n VAR -L 1G ${LVM_VG} >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Failed to create LVM LV - VAR"
+	exit 1;
+fi
+lvcreate -n ROOT -l 100%FREE ${LVM_VG} >/dev/null 2>&1
+if [ ${?} -ne 0 ]; then
+	logger -t ramdisk-target "   Failed to create LVM LV - ROOT"
+	exit 1;
+fi
+
+exit 0
