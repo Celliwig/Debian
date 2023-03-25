@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# The ISO image was patched to include packages (such as this one), this was
+# achieved by using overlay mounts of the read-only ISO fs. These need to be
+# removed, or it will cause problems for partman and fstab creation. This in
+# turn causes additional package installation (after the base system), to fail.
+#
+# Kernel args (! = default):
+#
+################################################################################
+
+# Load support functions
+#########################
+. /usr/share/debconf/confmodule
+. /celliwig.installer/functions.sh
+
+logger -t remove-celliwig-packages "Removing celliwig-installer ISO image fixups"
+
+# Unmount overlay mounts on /cdrom
+remove_mounts=$(grep -E '^overlay\s+/cdrom/.*' /proc/mounts | cut -d ' ' -f 2)
+for overlay_mount in ${remove_mounts}; do
+	umount "${overlay_mount}"
+done
+
+exit 0

@@ -1,0 +1,9 @@
+Package: remove-celliwig-packages
+Version: 0.1
+Architecture: all
+Maintainer: Celliwig
+Installed-Size: 1200
+Depends: libc6-udeb, cdebconf-udeb, di-utils-mapdevfs, di-utils
+Section: debian-installer
+Priority: standard
+Description: Remove celliwig-installer fixups that patched the ISO image.
