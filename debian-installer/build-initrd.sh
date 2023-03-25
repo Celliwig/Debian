@@ -20,15 +20,17 @@ usage () {
 # Defines
 ##############
 DIR_BUILD="initrd.build"							# Build directory
-DIR_DIST="${DIR_BUILD}/celliwig.dist"						# Directory for 'Packages' file
-DIR_PKGS="${DIR_BUILD}/celliwig.packages"					# Contains any additional deb package files
+DIR_CWG_DIST="${DIR_BUILD}/celliwig.dist"					# Directory for 'Packages' file
+DIR_CWG_PKGS="${DIR_BUILD}/celliwig.packages"					# Contains any additional deb package files
+DIR_PKGS="initrd.pkgs"								# Package source directory
 DIR_PWD=`pwd`									# Current directory
 FILE_INITRD="${DIR_PWD}/initrd.celliwig.img"					# Initrd image to be built
-FILE_PACKAGES="${DIR_DIST}/Packages"						# Path to 'Packages' file
+FILE_PACKAGES="${DIR_CWG_DIST}/Packages"					# Path to 'Packages' file
+PKG_CLEANUP="remove-fixups"							# Name of package that cleans up changes made to merge package repos
 
 # Variables
 ##############
-PKG_LST=									# List of packages to include
+PKG_LST_ARG=									# List of packages to include
 
 # Parse arguments
 while getopts ":hp:" arg; do
@@ -38,7 +40,7 @@ while getopts ":hp:" arg; do
 		exit 0
 		;;
 	p)
-		PKG_LST=${OPTARG}
+		PKG_LST_ARG=${OPTARG}
 		;;
 	*)
 		echo "$0: Unknown argument"
@@ -81,14 +83,66 @@ else
 fi
 
 # Check if any packages specified
-if [ -n "${PKG_LST}" ]; then
+if [ -n "${PKG_LST_ARG}" ]; then
 	echo -n "Copying extra files:		"
-	cp -r ${DIR_PWD}/initrd.base/* ${DIR_BUILD} >/dev/null 2>&1
+	cp -r ${DIR_PWD}/initrd.extras/* ${DIR_BUILD} >/dev/null 2>&1
 	if [ ${?} -eq 0 ]; then
 		echo "[Okay]"
 	else
 		echo "[Failed]"
 		exit 1
+	fi
+
+	# Build package list
+	PKG_LST=
+	# Check whether to include all packages
+	if [[ "${PKG_LST_ARG}" == "all" ]]; then
+		# Include all packages from the package source directory
+		find_cmd="find ${DIR_PKGS} -maxdepth 1 -type d"
+		for tmp_pkg in `${find_cmd}`; do
+			if [[ "${tmp_pkg}" != "${DIR_PKGS}" ]]; then
+				if [ -n "${PKG_LST}" ]; then
+					PKG_LST="${PKG_LST} "
+				fi
+				PKG_LST="${PKG_LST}${tmp_pkg#${DIR_PKGS}/}"
+			fi
+		done
+	else
+		# Going to change the Internal Field Seperator so save current config
+		IFS_OLD="${IFS}"
+		# Change IFS to comma to parse the package list
+		IFS=','
+		# Parse package list
+		for tmp_pkg in ${PKG_LST_ARG}; do
+			# Check p[ackage exists
+			if [ -d "${DIR_PKGS}/${tmp_pkg}" ]; then
+				if [ -n "${PKG_LST}" ]; then
+					PKG_LST="${PKG_LST} "
+				fi
+				# Exclude package that cleans up the changes that are made to merge the package repos
+				# This will be added explictly later
+				if [[ "${tmp_pkg}" != "${PKG_CLEANUP}" ]]; then
+					PKG_LST="${PKG_LST}${tmp_pkg}"
+				fi
+			else
+				echo "Unknown package: ${tmp_pkg}"
+				exit 1
+			fi
+		done
+		# Restore IFS
+		IFS="${IFS_OLD}"
+		# Add package that cleans up previous changes
+		if [ -n "${PKG_LST}" ]; then
+			PKG_LST="${PKG_LST} "
+		fi
+		PKG_LST="${PKG_LST}${PKG_CLEANUP}"
+	fi
+
+	if [ -z "${PKG_LST}" ]; then
+		echo "Error, no packages specfied"
+		exit 1
+	else
+		echo "Package List: ${PKG_LST}"
 	fi
 
 #	# Build packages
@@ -115,13 +169,13 @@ if [ -n "${PKG_LST}" ]; then
 #		#echo "Name: ${pkg_name}		Version: ${pkg_version}		Arch: ${pkg_arch}"
 #
 #		# Package directories are 1 letter
-#		pkg_dir="${DIR_PKGS}/${pkg:0:1}/${pkg}"
+#		pkg_dir="${DIR_CWG_PKGS}/${pkg:0:1}/${pkg}"
 #		# Make package directory
 #		mkdir -p "${pkg_dir}" >/dev/null 2>&1
 #
 #		# Build package
 #		pkg_filename="${pkg_dir}/${pkg_name}_${pkg_version}_${pkg_arch}.udeb"
-#		pkg_distpath="pool/main/${pkg_filename#${DIR_PKGS}/}"
+#		pkg_distpath="pool/main/${pkg_filename#${DIR_CWG_PKGS}/}"
 #		dpkg-deb --build ${pkg}/ ${pkg_filename} >/dev/null 2>&1
 #		if [ ${?} -eq 0 ]; then
 #			echo " [Okay]"
