@@ -1,29 +1,59 @@
-##!/bin/bash
-#
-## Functions
-###############
-#get_value () {
-#	file=${1}
-#	key=${2}
-#	value=`grep "^${key}" "${file}"`
-#	echo "${value#${key}: }"
-#}
-#
-## Base directory of initrd
-#DIR_INITRD="preseed_initrd"
-#DIR_DIST="${DIR_INITRD}/celliwig.dist"
-#DIR_PKGS="${DIR_INITRD}/celliwig.packages"
-#DIR_PWD=`pwd`
-#FILE_INITRD="${DIR_PWD}/debian_preseed.img"
-#FILE_PACKAGES="${DIR_DIST}/Packages"
-#
-## Remove any existing images
-#rm -f ${FILE_INITRD} ${FILE_INITRD}.gz
-## Clean packages directory
-#rm -rf ${DIR_PKGS}/* >/dev/null 2>&1
-## Clean dist directory
-#rm -rf ${DIR_DIST}/* >/dev/null 2>&1
-#
+#!/bin/bash
+
+# Functions
+##############
+get_value () {
+	file=${1}
+	key=${2}
+	value=`grep "^${key}" "${file}"`
+	echo "${value#${key}: }"
+}
+
+# Variables
+##############
+DIR_BUILD="initrd.build"							# Build directory
+DIR_DIST="${DIR_BUILD}/celliwig.dist"						# Directory for 'Packages' file
+DIR_PKGS="${DIR_BUILD}/celliwig.packages"					# Contains any additional deb package files
+DIR_PWD=`pwd`									# Current directory
+FILE_INITRD="${DIR_PWD}/initrd.celliwig.img"					# Initrd image to be built
+FILE_PACKAGES="${DIR_DIST}/Packages"						# Path to 'Packages' file
+
+# Remove any existing images
+rm -f ${FILE_INITRD} ${FILE_INITRD}.gz >/dev/null 2>&1
+# Remove previous build
+rm -rf ${DIR_BUILD} >/dev/null 2>&1
+
+# Create build directory
+echo -n "Creating build directory:	"
+mkdir ${DIR_BUILD} >/dev/null 2>&1
+if [ ${?} -eq 0 ]; then
+	echo "[Okay]"
+else
+	echo "[Failed]"
+	exit 1
+fi
+
+# Copying base files
+echo -n "Copying preseed files:		"
+cp -rL ${DIR_PWD}/preseed.cfg ${DIR_PWD}/preseed ${DIR_BUILD} >/dev/null 2>&1
+if [ ${?} -eq 0 ]; then
+	echo "[Okay]"
+else
+	echo "[Failed]"
+	exit 1
+fi
+echo -n "Copying base files:		"
+cp -r ${DIR_PWD}/initrd.base/* ${DIR_BUILD} >/dev/null 2>&1
+if [ ${?} -eq 0 ]; then
+	echo "[Okay]"
+else
+	echo "[Failed]"
+	exit 1
+fi
+
+
+
+
 ## Build packages
 #PKG_LST="partman-auto-reuse partman-crypto-boot ramdisk-target remove-fixups"
 ## Create repo 'Package' file
@@ -89,17 +119,17 @@
 #
 ## Compress Packages file
 #gzip ${FILE_PACKAGES}
-#
-## Build initrd
-#echo -n "Building initrd image: "
-#cd "${DIR_INITRD}"
-#find . | cpio --create --quiet --format='newc' > "${FILE_INITRD}"
-#retval=${?}
-#cd "${DIR_PWD}"
-#if [ $retval -eq 0 ]; then
-#	echo "[Okay]"
-#	# Compress initrd
-#	gzip -9 "${FILE_INITRD}"
-#else
-#	echo "[Failed]"
-#fi
+
+# Build initrd
+echo -n "Building initrd image:		"
+cd "${DIR_BUILD}"
+find . | cpio --create --quiet --format='newc' > "${FILE_INITRD}"
+retval=${?}
+cd "${DIR_PWD}"
+if [ $retval -eq 0 ]; then
+	echo "[Okay]"
+	# Compress initrd
+	gzip -9 "${FILE_INITRD}"
+else
+	echo "[Failed]"
+fi
