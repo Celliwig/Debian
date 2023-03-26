@@ -1,7 +1,7 @@
 # debian-installer
 
 ## Overview
-The Debian text based installer provides quite a simple interface to install a Debian system, however this simplicity belies it's power and the flexability that is available to overcome limitations in the base installer. In a number of situations the in built shell interface provides enough access to correct a number of deficiencies (eg. creating partition layouts not available through partman). In comparison 'ubiquity', the graphical installer, can be limiting and does not offer the same flexability (admittedly it is easier to use for less experienced users though).
+The Debian text based installer provides quite a simple interface to install a Debian system, however this simplicity belies it's power and the flexability that is available to overcome limitations in the base installer. In a number of situations the in built shell interface provides enough access to correct a number of deficiencies (eg. creating partition layouts not available through partman).
 
 The Debian installer offers preseeding as a way of (semi)automating installations by passing configuration values to the installer. There are a number of different methods supported to pass the preseeding configuration to the installer either using a file or over a network (DHCP/HTTP). However traditionally, for a standalone machine with no network connection, this would require updating the installer initrd for a truely automated install.
 
