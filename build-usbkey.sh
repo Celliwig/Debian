@@ -9,7 +9,7 @@
 #################################################################################################
 
 # Functions
-##############
+#############################
 # Print usage
 usage () {
 	echo "Download Debian ISO images & build a USB key from them."
@@ -41,7 +41,7 @@ command_check () {
 		echo "Error: Failed to find command - ${cmd}" >&2
 		exit 1
 	fi
-	echo "${cmd_path}"
+	#echo "${cmd_path}"
 	return 0
 }
 
@@ -99,15 +99,23 @@ device_part_check () {
 	return 0
 }
 
-# Defines
-##############
-CMD_SGDISK=`command_check sgdisk`				# Path to sgdisk command
+# Check for used commands
+#############################
+command_check blockdev						# Check for 'blockdev' command
+command_check lsblk						# Check for 'lsblk' command
+command_check mkfs.vfat						# Check for 'mkfs.vfat' command
+command_check partprobe						# Check for 'partprobe' command
+command_check sed						# Check for 'sed' command
+command_check sgdisk						# Check for 'sgdisk' command
+command_check sudo						# Check for 'sudo' command
 
+# Defines
+#############################
 TXT_UNDERLINE="\033[1m\033[4m"					# Used to pretty print output
 TXT_NORMAL="\033[0m"
 
 # Variables
-##############
+#############################
 DEV_PATH=							# USB device path
 DIR_PWD=`pwd`							# Current directory
 DIR_MNT="${DIR_PWD}/mnt"					# Directory to use for mount points
@@ -117,6 +125,7 @@ DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
 LST_ARCH=""							# Architecture list
 LST_ISO=""							# ISO image path list
 LST_PKG=""							# Package list
+PARTITION_NUM=1							# Partition counter
 PATH_EFI_DEV=							# USB key EFI partition path
 PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
 PATH_ISO_DEV=							# ISO image partition path
@@ -253,6 +262,7 @@ if [ ${?} -ne 0 ]; then
 	echo "	Error: ${PATH_EFI_DEV}" >&2
 	exit 1
 fi
+PARTITION_NUM=$((${PARTITION_NUM+1))
 echo -n "	Formating EFI System partition (${PATH_EFI_DEV}): "
 sudo mkfs.vfat -F32 -n DI-EFI "${PATH_EFI_DEV}" &> /dev/null
 okay_failedexit $?
@@ -269,6 +279,7 @@ if [ -n "${LST_ISO}" ]; then
 		iso_filename=`basename "${tmp_iso_img}"`
 		echo -n "	Adding ${iso_filename}: "
 		echo
+		PARTITION_NUM=$((${PARTITION_NUM+1))
 	done
 	echo
 fi
