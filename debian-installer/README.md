@@ -1,0 +1,10 @@
+# debian-installer
+
+## Overview
+The Debian text based installer provides quite a simple interface to install a Debian system, however this simplicity belies it's power and the flexability that is available to overcome limitations in the base installer. In a number of situations the in built shell interface provides enough access to correct a number of deficiencies (eg. creating partition layouts not available through partman). In comparison 'ubiquity', the graphical installer, can be limiting and does not offer the same flexability (admittedly it is easier to use for less experienced users though).
+
+The Debian installer offers preseeding as a way of (semi)automating installations by passing configuration values to the installer. There are a number of different methods supported to pass the preseeding configuration to the installer either using a file or over a network (DHCP/HTTP). However traditionally, for a standalone machine with no network connection, this would require updating the installer initrd for a truely automated install.
+
+In addition, like any software the installer suffers from bugs (such as the inability to handle an encrypted /boot, where GRUB fails to install), and there are use cases which are not handled where providing additional capabilities (partman in particular) would be helpful. Whether fixing bugs, or adding capabilities this again would require updating the installer initrd.
+
+As a one off updating the initrd is not particularly taxing, however performing this operation on a number of different target architecture ISOs whenever you're updating your installation media (or indeed adding a new host configuration) quickly becomes tiresome and a better way of handling this was wanted. This became available when support was added to both the kernel and GRUB for multiple initrds. In this scenario the installer initrd remains the same, and a new initrd containing both preseed configuration and any new installer resources is created. Then at boot time both these initrds are passed to the kernel and are combined at runtime. 
