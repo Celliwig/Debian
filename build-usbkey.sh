@@ -23,9 +23,18 @@ usage () {
 	echo "	-t <directory>		Directory to use as temporary storage for downloading files"
 }
 
+# Print msg for return code, and exit on fail
+okay_failedexit () {
+        if [ $1 -eq 0 ]; then
+                echo "Okay"
+        else
+                echo "Failed"
+                exit
+        fi
+}
+
 # Check for command
 command_check () {
-echo hello
 	cmd=${1}
 	cmd_path=`command -v ${cmd}`
 	if [ ${?} -ne 0 ]; then
@@ -58,6 +67,12 @@ sudo_priv_check () {
 	return ${?}
 }
 
+# Check the type of block device
+device_type_check () {
+	dev_type=$1
+	sudo lsblk -dn ${dev_type} |sed 's|^[a-z0-9]*\s*[0-9:]*\s*[0-9]*\s*[0-9]*.\s*[0-9]*\s*\([a-z]*\)\s*$|\1|'
+}
+
 # Defines
 ##############
 CMD_SGDISK=`command_check sgdisk`				# Path to sgdisk command
@@ -69,10 +84,15 @@ TXT_NORMAL="\033[0m"
 ##############
 DEV_PATH=							# USB device path
 DIR_PWD=`pwd`							# Current directory
+DIR_MNT="${DIR_PWD}/mnt"					# Directory to use for mount points
 DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
 LST_ARCH=""							# Architecture list
 LST_ISO=""							# ISO image path list
 LST_PKG=""							# Package list
+PATH_EFI_DEV=							# USB key EFI partition path
+PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
+PATH_ISO_DEV=							# ISO image partition path
+PATH_ISO_MNT="${DIR_MNT}/iso"					# ISO image partition mount path
 
 # Parse arguments
 while getopts ":ha:d:p:t:I:" arg; do
@@ -145,19 +165,23 @@ echo
 # Sanity check
 ########################
 echo -e "${TXT_UNDERLINE}Running sanity checks:${TXT_NORMAL}"
-
 # Check device
 if [ -z "${DEV_PATH}" ]; then
-	echo "\n	Error: No device specified" >&2
+	echo "	Error: No device specified" >&2
 	exit 1
 fi
 if [ ! -b "${DEV_PATH}" ]; then
-	echo "\n	Error: Not a block device - ${DEV_PATH}" >&2
+	echo "	Error: Not a block device - ${DEV_PATH}" >&2
+	exit 1
+fi
+DEV_TYPE=`device_type_check ${DEV_PATH}`
+if [[ "${DEV_TYPE}" != "disk" ]] && [[ "${DEV_TYPE}" != "loop" ]]; then
+	echo "	Error: Wrong device type - ${DEV_TYPE}" >&2
 	exit 1
 fi
 mount |grep "${DEV_PATH}" &> /dev/null
 if [ $? -eq 0 ]; then
-	echo "\n	Error: Device mounted - ${DEV_PATH}" >&2
+	echo "	Error: Device mounted - ${DEV_PATH}" >&2
 	exit 1
 fi
 DEV_SIZE_BYTES=`sudo blockdev --getsize64 ${DEV_PATH}`
@@ -168,9 +192,58 @@ else
 	echo "	Error: The device ${DEV_PATH}, is too small." >&2
 	exit 1
 fi
+echo
 
+# Create directories
+########################
+echo -e "${TXT_UNDERLINE}Creating directories:${TXT_NORMAL}"
+echo -n "	Create .${PATH_EFI_MNT#${DIR_PWD}}: "
+mkdir -p "${PATH_EFI_MNT}" &> /dev/null
+okay_failedexit $?
+echo -n "	Create .${PATH_ISO_MNT#${DIR_PWD}}: "
+mkdir -p "${PATH_ISO_MNT}" &> /dev/null
+okay_failedexit $?
+echo -n "	Create .${DIR_TMP#${DIR_PWD}}: "
+mkdir -p "${DIR_TMP}" &> /dev/null
+okay_failedexit $?
 echo
 
 # Create EFI partition
 ########################
 echo -e "${TXT_UNDERLINE}Creating EFI partition: ${DEV_PATH}${TXT_NORMAL}"
+echo -n "	Wiping partition table: "
+sudo sgdisk --zap-all "${DEV_PATH}" &> /dev/null
+okay_failedexit $?
+echo -n "	Create EFI System partition (256MB): "
+sudo sgdisk --new=1:0:+256M --typecode=1:ef00 --change-name=1:DI-EFI "${DEV_PATH}" &> /dev/null
+okay_failedexit $?
+sudo partprobe "${DEV_PATH}" &> /dev/null
+if [ -b "${DEV_PATH}p1" ]; then
+	PATH_EFI_DEV="${DEV_PATH}p1"
+elif [ -b "${DEV_PATH}1" ]; then
+	PATH_EFI_DEV="${DEV_PATH}1"
+else
+	echo "	Error: Failed to find EFI partition" >&2
+	exit 1
+fi
+DEV_EFI_TYPE=`device_type_check ${PATH_EFI_DEV}`
+if [[ "${DEV_EFI_TYPE}" != "part" ]]; then
+	echo "	Error: Unknown partition type - ${DEV_EFI_TYPE}" >&2
+	exit 1
+fi
+echo -n "	Formating EFI System partition (${PATH_EFI_DEV}): "
+sudo mkfs.vfat -F32 -n DI-EFI "${PATH_EFI_DEV}" &> /dev/null
+okay_failedexit $?
+echo
+
+# Clean up
+########################
+echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
+echo -n "	Deleting .${DIR_MNT#${DIR_PWD}}: "
+rm -rf "${DIR_MNT}" &> /dev/null
+okay_failedexit $?
+echo -n "	Create .${DIR_TMP#${DIR_PWD}}: "
+rm -rf "${DIR_TMP}" &> /dev/null
+okay_failedexit $?
+echo
+
