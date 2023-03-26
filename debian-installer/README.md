@@ -32,3 +32,12 @@ These are required to support additional packages:
   - This will unpack the full kernel package, and copy particular kernel modules into the current kernel '/lib/modules' directory. This currently copies brd and overlay modules, brd for the ramdisk-target package and overlay FS is needed to merge the new package directories with the existing repository.
 * S99merge_packages
   - This merges the existing repository from the ISO with the one containing the new packages.
+
+## initrd.pkgs
+This directory contains the source for the additional packages:
+* partman-crypto-boot
+  - This package fixes the bug which causes the install to fail when GRUB tries to install with '/boot' on an encrypted partition.
+* ramdisk-target
+  - This package creates a ramdisk backed installation target, useful for testing other d-i components (especially partman).
+* remove-celliwig-packages
+  - This removes the changes that were made by 'S99merge_packages'.
