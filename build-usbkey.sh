@@ -85,7 +85,9 @@ TXT_NORMAL="\033[0m"
 DEV_PATH=							# USB device path
 DIR_PWD=`pwd`							# Current directory
 DIR_MNT="${DIR_PWD}/mnt"					# Directory to use for mount points
+DIR_MNT_EXISTS=0						# Flag whether mount directory was created or not
 DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
+DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
 LST_ARCH=""							# Architecture list
 LST_ISO=""							# ISO image path list
 LST_PKG=""							# Package list
@@ -197,12 +199,14 @@ echo
 # Create directories
 ########################
 echo -e "${TXT_UNDERLINE}Creating directories:${TXT_NORMAL}"
+if [ -d "${DIR_MNT}" ]; then DIR_MNT_EXISTS=1; fi
 echo -n "	Create .${PATH_EFI_MNT#${DIR_PWD}}: "
 mkdir -p "${PATH_EFI_MNT}" &> /dev/null
 okay_failedexit $?
 echo -n "	Create .${PATH_ISO_MNT#${DIR_PWD}}: "
 mkdir -p "${PATH_ISO_MNT}" &> /dev/null
 okay_failedexit $?
+if [ -d "${DIR_TMP}" ]; then DIR_TMP_EXISTS=1; fi
 echo -n "	Create .${DIR_TMP#${DIR_PWD}}: "
 mkdir -p "${DIR_TMP}" &> /dev/null
 okay_failedexit $?
@@ -245,11 +249,15 @@ echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
 echo -n "	Unmounting EFI System partition: "
 sudo umount "${PATH_EFI_MNT}" &> /dev/null
 okay_failedexit $?
-echo -n "	Deleting .${DIR_MNT#${DIR_PWD}}: "
-rm -rf "${DIR_MNT}" &> /dev/null
-okay_failedexit $?
-echo -n "	Create .${DIR_TMP#${DIR_PWD}}: "
-rm -rf "${DIR_TMP}" &> /dev/null
-okay_failedexit $?
+if [ ${DIR_MNT_EXISTS} -eq 0 ]; then
+	echo -n "	Deleting .${DIR_MNT#${DIR_PWD}}: "
+	rm -rf "${DIR_MNT}" &> /dev/null
+	okay_failedexit $?
+fi
+if [ ${DIR_TMP_EXISTS} -eq 0 ]; then
+	echo -n "	Deleting .${DIR_TMP#${DIR_PWD}}: "
+	rm -rf "${DIR_TMP}" &> /dev/null
+	okay_failedexit $?
+fi
 echo
 
