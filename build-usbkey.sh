@@ -73,6 +73,32 @@ device_type_check () {
 	sudo lsblk -dn ${dev_type} |sed 's|^[a-z0-9]*\s*[0-9:]*\s*[0-9]*\s*[0-9]*.\s*[0-9]*\s*\([a-z]*\)\s*$|\1|'
 }
 
+# Check that a partition on a device has been created
+# and return it's path
+device_part_check () {
+	device_path="${1}"
+	partition_num="${2}"
+	partition_path=
+
+	sudo partprobe "${device_path}" &> /dev/null
+	if [ -b "${device_path}p${partition_num}" ]; then
+		partition_path="${device_path}p${partition_num}"
+	elif [ -b "${device_path}${partition_num}" ]; then
+		partition_path="${device_path}${partition_num}"
+	else
+		echo "Failed to find partition"
+		return 1
+	fi
+	partition_type=`device_type_check ${partition_path}`
+	if [[ "${partition_type}" != "part" ]]; then
+		echo "Unknown partition type - ${partition_type}"
+		return 1
+	fi
+
+	echo "${partition_path}"
+	return 0
+}
+
 # Defines
 ##############
 CMD_SGDISK=`command_check sgdisk`				# Path to sgdisk command
@@ -133,11 +159,12 @@ while getopts ":ha:d:p:t:I:" arg; do
 	esac
 done
 
+##########################################################
 # Main
-##############
+##########################################################
 
 # Check user ID
-########################
+#############################
 # Don't run as root as the downloads could do unforeseen things
 if [ `id -u` -eq 0 ]; then
 	echo "Error: This script should not be run as root" >&2
@@ -145,7 +172,7 @@ if [ `id -u` -eq 0 ]; then
 fi
 
 # User confirmation
-########################
+#############################
 echo "The device ${DEV_PATH} will be completely wiped."
 read -r -p "ARE YOU SURE YOU WISH TO CONTINUE? (y/N): " DOCONTINUE
 if [[ $DOCONTINUE = [Yy] ]]; then
@@ -156,7 +183,7 @@ else
 fi
 
 # Sudo privileges
-########################
+#############################
 sudo_priv_check
 if [ ${?} -ne 0 ]; then
 	echo "Error: Failed to get sudo privileges." >&2
@@ -165,7 +192,7 @@ fi
 echo
 
 # Sanity check
-########################
+#############################
 echo -e "${TXT_UNDERLINE}Running sanity checks:${TXT_NORMAL}"
 # Check device
 if [ -z "${DEV_PATH}" ]; then
@@ -197,7 +224,7 @@ fi
 echo
 
 # Create directories
-########################
+#############################
 echo -e "${TXT_UNDERLINE}Creating directories:${TXT_NORMAL}"
 if [ -d "${DIR_MNT}" ]; then DIR_MNT_EXISTS=1; fi
 echo -n "	Create .${PATH_EFI_MNT#${DIR_PWD}}: "
@@ -213,7 +240,7 @@ okay_failedexit $?
 echo
 
 # Create EFI partition
-########################
+#############################
 echo -e "${TXT_UNDERLINE}Creating EFI partition: ${DEV_PATH}${TXT_NORMAL}"
 echo -n "	Wiping partition table: "
 sudo sgdisk --zap-all "${DEV_PATH}" &> /dev/null
@@ -221,18 +248,9 @@ okay_failedexit $?
 echo -n "	Create EFI System partition (256MB): "
 sudo sgdisk --new=1:0:+256M --typecode=1:ef00 --change-name=1:DI-EFI "${DEV_PATH}" &> /dev/null
 okay_failedexit $?
-sudo partprobe "${DEV_PATH}" &> /dev/null
-if [ -b "${DEV_PATH}p1" ]; then
-	PATH_EFI_DEV="${DEV_PATH}p1"
-elif [ -b "${DEV_PATH}1" ]; then
-	PATH_EFI_DEV="${DEV_PATH}1"
-else
-	echo "	Error: Failed to find EFI partition" >&2
-	exit 1
-fi
-DEV_EFI_TYPE=`device_type_check ${PATH_EFI_DEV}`
-if [[ "${DEV_EFI_TYPE}" != "part" ]]; then
-	echo "	Error: Unknown partition type - ${DEV_EFI_TYPE}" >&2
+PATH_EFI_DEV=`device_part_check "${DEV_PATH}" 1`
+if [ ${?} -ne 0 ]; then
+	echo "	Error: ${PATH_EFI_DEV}" >&2
 	exit 1
 fi
 echo -n "	Formating EFI System partition (${PATH_EFI_DEV}): "
@@ -243,8 +261,20 @@ sudo mount -t vfat "${PATH_EFI_DEV}" "${PATH_EFI_MNT}" &> /dev/null
 okay_failedexit $?
 echo
 
+# Add specified ISO images
+#############################
+if [ -n "${LST_ISO}" ]; then
+	echo -e "${TXT_UNDERLINE}Add specified ISO images:${TXT_NORMAL}"
+	for tmp_iso_img in ${LST_ISO}; do
+		iso_filename=`basename "${tmp_iso_img}"`
+		echo -n "	Adding ${iso_filename}: "
+		echo
+	done
+	echo
+fi
+
 # Clean up
-########################
+#############################
 echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
 echo -n "	Unmounting EFI System partition: "
 sudo umount "${PATH_EFI_MNT}" &> /dev/null
