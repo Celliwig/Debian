@@ -23,9 +23,22 @@ usage () {
 	echo "	-t <directory>		Directory to use as temporary storage for downloading files"
 }
 
+# Check for command
+command_check () {
+echo hello
+	cmd=${1}
+	cmd_path=`command -v ${cmd}`
+	if [ ${?} -ne 0 ]; then
+		echo "Error: Failed to find command - ${cmd}" >&2
+		exit 1
+	fi
+	echo "${cmd_path}"
+	return 0
+}
+
 # Check architecture is valid
 arch_check () {
-	arch=$1
+	arch=${1}
 	case ${arch} in
 	i386| \
 	amd64| \
@@ -38,12 +51,19 @@ arch_check () {
 	return 1
 }
 
+# Sudo requests privileges, return priv status
+sudo_priv_check () {
+	# Request/Check sudo privileges
+	sudo -v &> /dev/null
+	return ${?}
+}
+
 # Defines
 ##############
-CMD_SGDISK=							# Path to sgdisk command (unset means not installed)
+CMD_SGDISK=`command_check sgdisk`				# Path to sgdisk command
 
-# Define commands
-CMD_SGDISK=`command -v sgdisk`
+TXT_UNDERLINE="\033[1m\033[4m"					# Used to pretty print output
+TXT_NORMAL="\033[0m"
 
 # Variables
 ##############
@@ -91,12 +111,66 @@ while getopts ":ha:d:p:t:I:" arg; do
 	esac
 done
 
+# Main
+##############
+
+# Check user ID
+########################
+# Don't run as root as the downloads could do unforeseen things
+if [ `id -u` -eq 0 ]; then
+	echo "Error: This script should not be run as root" >&2
+	exit 1
+fi
+
+# User confirmation
+########################
+echo "The device ${DEV_PATH} will be completely wiped."
+read -r -p "ARE YOU SURE YOU WISH TO CONTINUE? (y/N): " DOCONTINUE
+if [[ $DOCONTINUE = [Yy] ]]; then
+	echo
+else
+	echo "Operation canceled"
+	exit 1
+fi
+
+# Sudo privileges
+########################
+sudo_priv_check
+if [ ${?} -ne 0 ]; then
+	echo "Error: Failed to get sudo privileges." >&2
+	exit 1
+fi
+echo
+
+# Sanity check
+########################
+echo -e "${TXT_UNDERLINE}Running sanity checks:${TXT_NORMAL}"
+
 # Check device
 if [ -z "${DEV_PATH}" ]; then
-	echo "Error: No device specified"
+	echo "\n	Error: No device specified" >&2
 	exit 1
 fi
 if [ ! -b "${DEV_PATH}" ]; then
-	echo "Error: Not a block device - ${DEV_PATH}"
+	echo "\n	Error: Not a block device - ${DEV_PATH}" >&2
 	exit 1
 fi
+mount |grep "${DEV_PATH}" &> /dev/null
+if [ $? -eq 0 ]; then
+	echo "\n	Error: Device mounted - ${DEV_PATH}" >&2
+	exit 1
+fi
+DEV_SIZE_BYTES=`sudo blockdev --getsize64 ${DEV_PATH}`
+DEV_SIZE_GIG=$((DEV_SIZE_BYTES/1073741824))
+if [ ${DEV_SIZE_GIG} -gt 4 ]; then
+	echo "	Detected: ${DEV_PATH} (${DEV_SIZE_GIG} GB)"
+else
+	echo "	Error: The device ${DEV_PATH}, is too small." >&2
+	exit 1
+fi
+
+echo
+
+# Create EFI partition
+########################
+echo -e "${TXT_UNDERLINE}Creating EFI partition: ${DEV_PATH}${TXT_NORMAL}"
