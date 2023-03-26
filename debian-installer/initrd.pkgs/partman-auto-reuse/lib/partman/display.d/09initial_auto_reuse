@@ -1,0 +1,333 @@
+#!/bin/sh
+#
+# Reuse existing LVM LVs, based on LV name
+#
+##########################################################################
+
+. /lib/partman/lib/base.sh
+. /lib/partman/lib/auto-shared.sh
+. /lib/partman/lib/crypto-base.sh
+. /celliwig.installer/functions.sh
+
+# See if we are supposed to run and only run once
+db_get partman-auto/method
+if [ "$RET" != lvm-reuse ] || \
+   [ -f /var/lib/partman/initial_auto_reuse ]; then
+        exit 0
+fi
+
+# Skip if no disks detected and don't run on S/390
+if [ -z "$(get_auto_disks)" ] || \
+   [ "$(udpkg --print-architecture)" = s390 ]; then
+	exit 0
+fi
+
+mkdir -p /var/lib/partman
+touch /var/lib/partman/initial_auto_reuse
+
+# Module packages may have been unpacked due to
+# package dependencies, but the kernel may not know
+####################################################
+depmod --all >/dev/null 2>&1
+
+# Get possible VG names
+########################
+lvm_vg_names=`get_vgname`
+if [ ${?} -ne 0 ]; then
+	exit 1
+fi
+db_get partman-auto-lvm/new_vg_name
+if [ -n "$RET" ]; then
+	# Set alternate name
+	lvm_vg_names="${lvm_vg_names} ${RET}"
+fi
+if [ -s /etc/hostname ]; then
+	default_vgname=$(cat /etc/hostname | head -n 1 | tr -d " ")
+fi
+if [ "$default_vgname" ]; then
+	lvm_vg_names="${lvm_vg_names} ${default_vgname}-vg"
+else
+	lvm_vg_names="${lvm_vg_names} Debian"
+fi
+
+# Description of partitions
+############################
+# Boot
+boot_target="/boot"
+boot_dev=
+boot_exists=0
+boot_wipe=1
+# Home
+home_target="/home"
+home_dev=
+home_exists=0
+home_wipe=1
+# Opt
+opt_target="/opt"
+opt_dev=
+opt_exists=0
+opt_wipe=1
+# Root
+root_target="/"
+root_dev=
+root_exists=0
+root_wipe=1
+# Srv
+srv_target="/srv"
+srv_dev=
+srv_exists=0
+srv_wipe=1
+# Tmp
+tmp_target="/tmp"
+tmp_dev=
+tmp_exists=0
+tmp_wipe=1
+# Var
+var_target="/var"
+var_dev=
+var_exists=0
+var_wipe=1
+# ESP (EFI System Partition)
+esp_target="${boot_target}/efi"
+esp_dev=""
+esp_exists=0
+esp_wipe=0
+
+partition_list="root boot esp home opt srv tmp var"
+
+# Search for existing LVM VG
+#############################
+log "Searching for existing LVM VGs on: ${lvm_vg_names}"
+# Wait 60s
+wait_ready=60
+lvm_vg_name=
+for i in $(seq 0 ${wait_ready}); do
+	for tmp_vg_name in ${lvm_vg_names}; do
+		if [ -d "/dev/${tmp_vg_name}" ]; then
+			lvm_vg_name="${tmp_vg_name}"
+			log "	Found: ${lvm_vg_name}"
+			break;
+		fi
+	done
+	if [ -n "${lvm_vg_name}" ]; then break; fi
+	sleep 1
+done
+
+# Wait a couple of seconds to make sure devmapper/udev
+# has made all devices available.
+sleep 3
+
+# Detect available partitions
+##############################
+log "Searching for existing LVM LVs in: ${lvm_vg_name}"
+for partition in ${partition_list}; do
+	# Generate list of different LV names
+	lv_names=$(echo ${partition} | tr 'a-z' 'A-Z')
+	lv_names="${lv_names} ${partition}"
+
+	for lv_name in ${lv_names}; do
+		# Check for link
+		if [ -e "/dev/mapper/${lvm_vg_name}-${lv_name}" ]; then
+			log "	Found: ${lv_name}"
+			eval "${partition}_dev=/dev/mapper/${lvm_vg_name}-${lv_name}"
+			eval "${partition}_exists=1"
+			break
+		fi
+	done
+done
+# Detect ESP if it was preseeded
+if db_get grub-installer/bootdev && [ "$RET" ]; then
+	esp_dev="${RET}"
+	esp_exists=1;
+fi
+
+# Check LVM LV 'ROOT' is available
+###################################
+if [ ! -e "${root_dev}" ]; then
+	exit 1
+fi
+
+## Check if VG backed by an encrypted partition
+################################################
+## Get PV(s) from VG
+#lvm_pv_count=0
+#lvm_pv_device=
+#lvm_vg_encrypted=0
+#for lvm_pv_in_vg in `pvdisplay --select vg_name=${lvm_vg_name} -c | sed -E 's|^\s+([^:]+):[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+:[^:]+$|\1|'`; do
+#	lvm_pv_count=$((${lvm_pv_count}+1))
+#	lvm_pv_device="${lvm_pv_in_vg}"
+#	if [ -n "$(dmsetup status --target crypt ${lvm_pv_device} 2>/dev/null)" ]; then
+#		lvm_vg_encrypted=$((${lvm_vg_encrypted}+1))
+#	fi
+#done
+## Check that there's only 1 device, and it's encrypted
+#if [ ${lvm_vg_encrypted} -eq 1 ] && [ ${lvm_pv_count} -eq 1 ]; then
+#	# Get the physical device backing encrypted device
+#	cryptdev_real=$(dmsetup deps -o blkdevname ${lvm_pv_device} |sed -E 's|^[0-9]+\s+dependencies\s+:\s+\((.*)\)|\1|')
+#	# Make path to device
+#	if [ -b /dev/${cryptdev_real} ]; then cryptdev_real="/dev/${cryptdev_real}" fi
+#	# Create necessary mapping info from
+#	# backing block device to dm-crypt device
+#	if [ $(cryptsetup isLuks ${cryptdev_real}) ]; then
+#		# Get partman devices
+#		partdev_real=$(dev_to_partman "${cryptdev_real}") || true
+#		partdev_crypt=$(dev_to_partman "${lvm_pv_device}") || true
+#		if [ -n "${partdev_real}" ] && [ -n "${partdev_crypt}" ]; then
+#			# Backing device
+#			[ -d "${partdev_real}" ] || exit 1
+#			cd ${partdev_real}
+#			partitions=
+#			open_dialog PARTITIONS
+#			while { read_line num id size type fs path name; [ "$id" ]; }; do
+#				if [ "$fs" != free ]; then
+#					partitions="$partitions $id:$num:$size:$path"
+#				fi
+#			done
+#			close_dialog
+#
+#			for p in $partitions; do
+#				set -- $(IFS=: && echo $p)
+#				id=$1
+#				num=$2
+#				size=$3
+#				path=$4
+#
+#				echo "${partdev_crypt}" > $id/crypt_active
+#				echo "crypto" > $id/method
+#				touch $id/crypto_type
+#				touch $id/cipher
+#
+#				# Create mapping back from encrypted partition
+#				# to backing device
+#				echo $path:$num:$dev/$id > ${partdev_crypt}/crypt_realdev
+#			done
+#
+#
+#
+#			exit 1
+#
+##			# Get partman partition id
+##			[ -d "${partman_dev}" ] || continue
+##			cd ${partman_dev}
+##			partid=
+##			partid_count=0
+##			open_dialog PARTITIONS
+##			while { read_line num id size type fs path name; [ "$id" ]; }; do
+##				# Ignore free space???
+##				if [ "$fs" != free ]; then
+##					partid="$id"
+##					partid_count=$((${partid_count}+1))
+##				fi
+##			done
+##			close_dialog
+#
+#		fi
+#	fi
+#fi
+
+# Erase partitions
+#########################
+erase_interactive="yes"
+log "Erase existing data:"
+for partition in ${partition_list}; do
+	# Get device path
+	device_path=$(eval "echo \$${partition}_dev")
+	device_exists=$(eval "echo \$${partition}_exists")
+	device_wipe=$(eval "echo \$${partition}_wipe")
+
+	#log "	${device_path}[${device_exists}]: ${device_wipe}"
+	if [ -e ${device_path} ] && [ ${device_exists} -eq 1 ] && [ ${device_wipe} -eq 1 ]; then
+		log "	Erasing ${partition}..."
+		crypto_wipe_device "${device_path}" none ${erase_interactive}
+	fi
+done
+
+# Create disk/target mappings
+##############################
+log "Map partitions to target directories:"
+for partition in ${partition_list}; do
+	# Get device path
+	device_path=$(eval "echo \$${partition}_dev")
+	device_exists=$(eval "echo \$${partition}_exists")
+	device_wipe=$(eval "echo \$${partition}_wipe")
+	device_target=$(eval "echo \$${partition}_target")
+
+	# Does the device exist
+	if [ -e ${device_path} ] && [ ${device_exists} -eq 1 ]; then
+		log "	Mapping ${partition}..."
+		# Get partman device
+		partman_dev=$(dev_to_partman "${device_path}") || true
+		if [ "${partman_dev}" ]; then
+			# Get partman partition id
+			[ -d "${partman_dev}" ] || continue
+			cd ${partman_dev}
+			partid=
+			partid_count=0
+			open_dialog PARTITIONS
+			while { read_line num id size type fs path name; [ "$id" ]; }; do
+				# Ignore free space???
+				if [ "$fs" != free ]; then
+					partid="$id"
+					partid_count=$((${partid_count}+1))
+				fi
+			done
+			close_dialog
+
+			# Check partition count
+			if [ ${partid_count} -ne 1]; then
+				log "		Failed to get partman device"
+				exit 1
+			fi
+
+			# Check whether to format partition
+			partition_format=0
+			if [ ${device_wipe} -eq 1 ] || [ ! -f "${partman_dev}/${partid}/existing" ]; then
+				partition_format=1
+			fi
+
+			# ESP needs seperate handling
+			if [ "${partition}" = esp ]; then
+				# Create mapping
+				touch "${partman_dev}/${partid}/bootable"
+				if [ ${?} -ne 0 ]; then exit 1; fi
+				touch "${partman_dev}/${partid}/efi_bootable"
+				if [ ${?} -ne 0 ]; then exit 1; fi
+				echo efi > "${partman_dev}/${partid}/method"
+				if [ ${?} -ne 0 ]; then exit 1; fi
+			else
+				# Create mapping
+				echo ext4 > "${partman_dev}/${partid}/acting_filesystem"
+				if [ ${?} -ne 0 ]; then exit 1; fi
+				echo ext4 > "${partman_dev}/${partid}/filesystem"
+				if [ ${?} -ne 0 ]; then exit 1; fi
+				touch "${partman_dev}/${partid}/formatable"
+				if [ ${?} -ne 0 ]; then exit 1; fi
+				# Format if necessary
+				if [ ${partition_format} -eq 1 ]; then
+					touch "${partman_dev}/${partid}/format"
+					if [ ${?} -ne 0 ]; then exit 1; fi
+					echo format > "${partman_dev}/${partid}/method"
+					if [ ${?} -ne 0 ]; then exit 1; fi
+				else
+					echo keep > "${partman_dev}/${partid}/method"
+					if [ ${?} -ne 0 ]; then exit 1; fi
+				fi
+				echo "${device_target}" > "${partman_dev}/${partid}/mountpoint"
+				if [ ${?} -ne 0 ]; then exit 1; fi
+				mkdir "${partman_dev}/${partid}/options"
+				if [ ${?} -ne 0 ]; then exit 1; fi
+				touch "${partman_dev}/${partid}/use_filesystem"
+				if [ ${?} -ne 0 ]; then exit 1; fi
+			fi
+		else
+			log "		Failed to get partman device"
+			exit 1
+		fi
+	fi
+done
+
+stop_parted_server
+
+restart_partman
+
+exit 100
