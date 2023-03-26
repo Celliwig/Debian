@@ -27,3 +27,8 @@ This provides the basic helpers:
   - Selects the correct kernel image based on architecture.
 
 ## initrd.extras
+These are required to support additional packages:
+* S98extra_modules
+  - This will unpack the full kernel package, and copy particular kernel modules into the current kernel '/lib/modules' directory. This currently copies brd and overlay modules, brd for the ramdisk-target package and overlay FS is needed to merge the new package directories with the existing repository.
+* S99merge_packages
+  - This merges the existing repository from the ISO with the one containing the new packages.
