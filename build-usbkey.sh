@@ -234,11 +234,17 @@ fi
 echo -n "	Formating EFI System partition (${PATH_EFI_DEV}): "
 sudo mkfs.vfat -F32 -n DI-EFI "${PATH_EFI_DEV}" &> /dev/null
 okay_failedexit $?
+echo -n "	Mounting EFI System partition (.${PATH_EFI_MNT#${DIR_PWD}}): "
+sudo mount -t vfat "${PATH_EFI_DEV}" "${PATH_EFI_MNT}" &> /dev/null
+okay_failedexit $?
 echo
 
 # Clean up
 ########################
 echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
+echo -n "	Unmounting EFI System partition: "
+sudo umount "${PATH_EFI_MNT}" &> /dev/null
+okay_failedexit $?
 echo -n "	Deleting .${DIR_MNT#${DIR_PWD}}: "
 rm -rf "${DIR_MNT}" &> /dev/null
 okay_failedexit $?
