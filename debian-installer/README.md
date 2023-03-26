@@ -25,3 +25,5 @@ This provides the basic helpers:
   - This just logs some information (hashes) of the install media/preseed files.
 * S34preseed_arch
   - Selects the correct kernel image based on architecture.
+
+## initrd.extras
