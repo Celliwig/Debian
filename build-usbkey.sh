@@ -18,6 +18,7 @@ usage () {
 	echo "Options:"
 	echo "	-a <architecture>	Add architecture to download"
 	echo "	-d <device path>	Device path of USB key"
+	echo "	-D <only|done>		Either only download files, or assume done already"
 	echo "	-I <ISO image path>	Path to ISO image to add"
 	echo "	-p <package>		Add a package to download the relavent ISO image for"
 	echo "	-t <directory>		Directory to use as temporary storage for downloading files"
@@ -139,6 +140,9 @@ device_add_iso_image () {
 		return 1
 	fi
 
+	# Sync cache to disk
+	sudo sync &>/dev/null
+
 	return 0
 }
 
@@ -149,7 +153,7 @@ efi_copy_from_iso () {
 
 	# Copy EFI binaries
 	path_efi_bin="/EFI/boot/"
-	sudo cp "${path_source}${path_efi_bin}"* "${path_target}${path_efi_bin}"
+	sudo cp "${path_source}${path_efi_bin}"* "${path_target}${path_efi_bin}" &>/dev/null
 	if [ ${?} -ne 0 ]; then
 		echo "Failed to copy ${path_efi_bin}"
 		return 1
@@ -158,12 +162,36 @@ efi_copy_from_iso () {
 	# Copy GRUB resources
 	path_grub_rsc="/boot/grub/"
 	for tmp_rsc in `find "${path_source}${path_grub_rsc}" -maxdepth 1 -mindepth 1 ! -name grub.cfg ! -name efi.img`; do
-		sudo cp -r "${tmp_rsc}" "${path_target}${path_grub_rsc}"
+		sudo cp -r "${tmp_rsc}" "${path_target}${path_grub_rsc}" &>/dev/null
 		if [ ${?} -ne 0 ]; then
 			echo "Failed to copy ${path_grub_rsc}"
 			return 1
 		fi
 	done
+
+	return 0
+}
+
+# Download files from a given URL
+isosrc_download_files () {
+	isosrc_url="${1}"
+	isosrc_path_save="${2}"
+
+	# Download files using wget
+	#   -q: quiet
+	#   -nd: don't create directory hierarchy
+	#   --https-only: only use https sources
+	#   -r: recursive retrieving
+	#   -l1: set max recursion level to 1
+	#   -np: do not ascend to parent
+	#   -A: comma seperate list of files to accept
+	#   -P: save location
+	##########################################################
+	err_msg=`wget -nv -nd --https-only -r -l1 -np -A 'SHA*SUMS,SHA*SUMS.sign,*.iso' -P "${isosrc_path_save}" "${isosrc_url}" 2>&1 1>/dev/null`
+	if [ ${?} -ne 0 ]; then
+		echo "${err_msg}"
+		return 1
+	fi
 
 	return 0
 }
@@ -179,9 +207,15 @@ command_check partprobe						# Check for 'partprobe' command
 command_check sed						# Check for 'sed' command
 command_check sgdisk						# Check for 'sgdisk' command
 command_check sudo						# Check for 'sudo' command
+command_check wget						# Check for 'wget' command
 
 # Defines
 #############################
+# ISO source (Debian)
+ISOSRC_DEBIAN_URLBASE="https://cdimage.debian.org/debian-cd/###VERSION###/###ARCHITECTURE###/###TYPE###/"
+ISOSRC_DEBIAN_VER="current"
+ISOSRC_DEBIAN_TYPE_HTTPS="iso-dvd"
+ISOSRC_DEBIAN_TYPE_JIGDO="jigdo-dvd"
 PATH_EFI_EFIBOOT="/EFI/boot"					# Path to EFI GRUB binaries
 PATH_EFI_BOOTGRUB="/boot/grub"					# Path to GRUB resources
 PATH_EFI_HASHES="/hashes"					# Base directory of store for hashes/signatures
@@ -196,18 +230,22 @@ DIR_MNT="${DIR_PWD}/mnt"					# Directory to use for mount points
 DIR_MNT_EXISTS=0						# Flag whether mount directory was created or not
 DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
 DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
-ERR_SKIP=0							# If set, skip any remaining items
+DLOAD_ONLY=0							# When set, only download selected files
+DLOAD_DONE=0							# When set, skip downloading files
 LST_ARCH=""							# Architecture list
 LST_ISO=()							# ISO image path array
 LST_PKG=""							# Package list
 PARTITION_NUM=1							# Partition counter
+PATH_DLOAD_HTTPS="/https"					# Path to store downloaded files (https)
+PATH_DLOAD_JIGDO="/jigdo"					# Path to store downloaded files (jigdo)
 PATH_EFI_DEV=							# USB key EFI partition path
 PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
 PATH_ISO_DEV=							# ISO image partition path
 PATH_ISO_MNT="${DIR_MNT}/iso"					# ISO image partition mount path
+SKIP_REMAINING=0						# If set, skip any remaining items
 
 # Parse arguments
-while getopts ":ha:d:p:t:I:" arg; do
+while getopts ":ha:d:D:p:t:I:" arg; do
 	case ${arg} in
 	a)
 		arch_check ${OPTARG}
@@ -220,6 +258,20 @@ while getopts ":ha:d:p:t:I:" arg; do
 		;;
 	d)
 		DEV_PATH=${OPTARG}
+		;;
+	D)
+		case ${OPTARG} in
+		only)
+			DLOAD_ONLY=1
+			;;
+		done)
+			DLOAD_DONE=1
+			;;
+		*)
+			echo "Error: unknown argument for -D"
+			exit 1
+			;;
+		esac
 		;;
 	h)
 		usage
@@ -254,58 +306,6 @@ if [ `id -u` -eq 0 ]; then
 	exit 1
 fi
 
-# User confirmation
-#############################
-echo "The device ${DEV_PATH} will be completely wiped."
-read -r -p "ARE YOU SURE YOU WISH TO CONTINUE? (y/N): " DOCONTINUE
-if [[ $DOCONTINUE = [Yy] ]]; then
-	echo
-else
-	echo "Operation canceled"
-	exit 1
-fi
-
-# Sudo privileges
-#############################
-sudo_priv_check
-if [ ${?} -ne 0 ]; then
-	echo "Error: Failed to get sudo privileges." >&2
-	exit 1
-fi
-echo
-
-# Sanity check
-#############################
-echo -e "${TXT_UNDERLINE}Running sanity checks:${TXT_NORMAL}"
-# Check device
-if [ -z "${DEV_PATH}" ]; then
-	echo "	Error: No device specified" >&2
-	exit 1
-fi
-if [ ! -b "${DEV_PATH}" ]; then
-	echo "	Error: Not a block device - ${DEV_PATH}" >&2
-	exit 1
-fi
-DEV_TYPE=`device_type_check ${DEV_PATH}`
-if [[ "${DEV_TYPE}" != "disk" ]] && [[ "${DEV_TYPE}" != "loop" ]]; then
-	echo "	Error: Wrong device type - ${DEV_TYPE}" >&2
-	exit 1
-fi
-mount |grep "${DEV_PATH}" &>/dev/null
-if [ $? -eq 0 ]; then
-	echo "	Error: Device mounted - ${DEV_PATH}" >&2
-	exit 1
-fi
-DEV_SIZE_BYTES=`sudo blockdev --getsize64 ${DEV_PATH}`
-DEV_SIZE_GIG=$((DEV_SIZE_BYTES/1073741824))
-if [ ${DEV_SIZE_GIG} -gt 4 ]; then
-	echo "	Detected: ${DEV_PATH} (${DEV_SIZE_GIG} GB)"
-else
-	echo "	Error: The device ${DEV_PATH}, is too small." >&2
-	exit 1
-fi
-echo
-
 # Create directories
 #############################
 echo -e "${TXT_UNDERLINE}Creating directories:${TXT_NORMAL}"
@@ -317,117 +317,212 @@ echo -n "	Create .${PATH_ISO_MNT#${DIR_PWD}}: "
 mkdir -p "${PATH_ISO_MNT}" &>/dev/null
 okay_failedexit $?
 if [ -d "${DIR_TMP}" ]; then DIR_TMP_EXISTS=1; fi
-echo -n "	Create .${DIR_TMP#${DIR_PWD}}: "
-mkdir -p "${DIR_TMP}" &>/dev/null
+echo -n "	Create .${DIR_TMP#${DIR_PWD}}${PATH_DLOAD_HTTPS}: "
+mkdir -p "${DIR_TMP}${PATH_DLOAD_HTTPS}" &>/dev/null
+okay_failedexit $?
+echo -n "	Create .${DIR_TMP#${DIR_PWD}}${PATH_DLOAD_JIGDO}: "
+mkdir -p "${DIR_TMP}${PATH_DLOAD_JIGDO}" &>/dev/null
 okay_failedexit $?
 echo
 
-# Create EFI partition
-#############################
-echo -e "${TXT_UNDERLINE}Creating EFI partition: ${DEV_PATH}${TXT_NORMAL}"
-echo -n "	Wiping partition table: "
-sudo sgdisk --zap-all "${DEV_PATH}" &>/dev/null
-okay_failedexit $?
-echo -n "	Create EFI System partition (256MB): "
-sudo sgdisk --new=1:0:+256M --typecode=1:ef00 --change-name=1:DI-EFI "${DEV_PATH}" &>/dev/null
-okay_failedexit $?
-PATH_EFI_DEV=`device_part_check "${DEV_PATH}" 1`
-if [ ${?} -ne 0 ]; then
-	echo "	Error: ${PATH_EFI_DEV}" >&2
-	exit 1
+# Download files using HTTPS & jigdo if necessary
+##########################################################
+if [ ${DLOAD_DONE} -eq 0 ]; then
+	echo -e "${TXT_UNDERLINE}Downloading files:${TXT_NORMAL}"
+	if [ -n "${LST_ARCH}" ]; then
+		echo "	Downloading base ISOs using HTTPS:"
+		for tmp_arch in ${LST_ARCH}; do
+			download_path="${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}"
+			download_url=`echo "${ISOSRC_DEBIAN_URLBASE}" | sed -e "s|###VERSION###|${ISOSRC_DEBIAN_VER}|" -e "s|###ARCHITECTURE###|${tmp_arch}|" -e "s|###TYPE###|${ISOSRC_DEBIAN_TYPE_HTTPS}|"`
+			echo "		Architecture: ${tmp_arch}"
+			echo -n "			Creating .${download_path#${DIR_PWD}}: "
+			mkdir -p "${download_path}" &>/dev/null
+			if [ ${?} -eq 0 ]; then
+				echo "Okay"
+			else
+				echo "Failed"
+				SKIP_REMAINING=1
+				break;
+			fi
+			echo -n "			Downloading ${download_url}: "
+			err_msg=`isosrc_download_files "${download_url}" "${download_path}"`
+			if [ ${?} -eq 0 ]; then
+				echo "Okay"
+			else
+				echo "Failed: ${err_msg}"
+				SKIP_REMAINING=1
+				break;
+			fi
+		done
+	else
+		echo "	Failed to download files, no architectures given"
+		SKIP_REMAINING=1
+	fi
+	echo
 fi
-PARTITION_NUM=$((${PARTITION_NUM}+1))
-echo -n "	Formating EFI System partition (${PATH_EFI_DEV}): "
-sudo mkfs.vfat -F32 -n DI-EFI "${PATH_EFI_DEV}" &>/dev/null
-okay_failedexit $?
-echo -n "	Mounting EFI System partition (.${PATH_EFI_MNT#${DIR_PWD}}): "
-sudo mount -t vfat "${PATH_EFI_DEV}" "${PATH_EFI_MNT}" &>/dev/null
-okay_failedexit $?
-echo "	Creating directories:"
-echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_EFIBOOT}: "
-sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_EFIBOOT}" &>/dev/null
-okay_failedexit $?
-echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_BOOTGRUB}: "
-sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_BOOTGRUB}" &>/dev/null
-okay_failedexit $?
-echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_HASHES}: "
-sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_HASHES}" &>/dev/null
-okay_failedexit $?
-echo
 
-# Add specified ISO images
-#############################
-if [ -n "${LST_ISO}" ] && [ ${ERR_SKIP} -eq 0 ]; then
-	echo -e "${TXT_UNDERLINE}Add specified ISO images:${TXT_NORMAL}"
-	for tmp_index in ${!LST_ISO[@]}; do
-		tmp_iso_img="${LST_ISO[${tmp_index}]}"
-		tmp_iso_filename=`basename "${tmp_iso_img}"`
-		echo -n "	Adding ${tmp_iso_filename}: "
-		err_msg=`device_add_iso_image "${DEV_PATH}" "${PARTITION_NUM}" "${tmp_iso_img}" "${tmp_iso_filename}"`
-		if [ ${?} -eq 0 ]; then
-			echo "Okay"
-		else
-			echo "${err_msg}"
-			ERR_SKIP=1
-			break;
-		fi
-		echo -n "		Mounting ISO image: "
-		sudo mount "/dev/disk/by-partlabel/${tmp_iso_filename}" "${PATH_ISO_MNT}" &>/dev/null
-		if [ ${?} -eq 0 ]; then
-			echo "Okay"
-		else
-			echo "Failed"
-			ERR_SKIP=1
-			break;
-		fi
-		echo -n "		Checking if bootable: "
-		if [ -d "${PATH_ISO_MNT}/boot" ]; then
-			echo "Yes"
+# Skip USB key creation if just downloading files
+##########################################################
+if [ ${DLOAD_ONLY} -eq 0 ]; then
+	# User confirmation
+	#############################
+	echo "The device ${DEV_PATH} will be completely wiped."
+	read -r -p "ARE YOU SURE YOU WISH TO CONTINUE? (y/N): " DOCONTINUE
+	if [[ $DOCONTINUE = [Yy] ]]; then
+		echo
+	else
+		echo "Operation canceled"
+		exit 1
+	fi
 
-			echo -n "		Copying EFI files: "
-			err_msg=`efi_copy_from_iso "${PATH_ISO_MNT}" "${PATH_EFI_MNT}"`
+	# Sudo privileges
+	#############################
+	sudo_priv_check
+	if [ ${?} -ne 0 ]; then
+		echo "Error: Failed to get sudo privileges." >&2
+		exit 1
+	fi
+	echo
+
+	# Sanity check
+	#############################
+	echo -e "${TXT_UNDERLINE}Running sanity checks:${TXT_NORMAL}"
+	# Check device
+	if [ -z "${DEV_PATH}" ]; then
+		echo "	Error: No device specified" >&2
+		exit 1
+	fi
+	if [ ! -b "${DEV_PATH}" ]; then
+		echo "	Error: Not a block device - ${DEV_PATH}" >&2
+		exit 1
+	fi
+	DEV_TYPE=`device_type_check ${DEV_PATH}`
+	if [[ "${DEV_TYPE}" != "disk" ]] && [[ "${DEV_TYPE}" != "loop" ]]; then
+		echo "	Error: Wrong device type - ${DEV_TYPE}" >&2
+		exit 1
+	fi
+	mount |grep "${DEV_PATH}" &>/dev/null
+	if [ $? -eq 0 ]; then
+		echo "	Error: Device mounted - ${DEV_PATH}" >&2
+		exit 1
+	fi
+	DEV_SIZE_BYTES=`sudo blockdev --getsize64 ${DEV_PATH}`
+	DEV_SIZE_GIG=$((DEV_SIZE_BYTES/1073741824))
+	if [ ${DEV_SIZE_GIG} -gt 4 ]; then
+		echo "	Detected: ${DEV_PATH} (${DEV_SIZE_GIG} GB)"
+	else
+		echo "	Error: The device ${DEV_PATH}, is too small." >&2
+		exit 1
+	fi
+	echo
+
+	# Create EFI partition
+	#############################
+	echo -e "${TXT_UNDERLINE}Creating EFI partition: ${DEV_PATH}${TXT_NORMAL}"
+	echo -n "	Wiping partition table: "
+	sudo sgdisk --zap-all "${DEV_PATH}" &>/dev/null
+	okay_failedexit $?
+	echo -n "	Create EFI System partition (256MB): "
+	sudo sgdisk --new=1:0:+256M --typecode=1:ef00 --change-name=1:DI-EFI "${DEV_PATH}" &>/dev/null
+	okay_failedexit $?
+	PATH_EFI_DEV=`device_part_check "${DEV_PATH}" 1`
+	if [ ${?} -ne 0 ]; then
+		echo "	Error: ${PATH_EFI_DEV}" >&2
+		exit 1
+	fi
+	PARTITION_NUM=$((${PARTITION_NUM}+1))
+	echo -n "	Formating EFI System partition (${PATH_EFI_DEV}): "
+	sudo mkfs.vfat -F32 -n DI-EFI "${PATH_EFI_DEV}" &>/dev/null
+	okay_failedexit $?
+	echo -n "	Mounting EFI System partition (.${PATH_EFI_MNT#${DIR_PWD}}): "
+	sudo mount -t vfat "${PATH_EFI_DEV}" "${PATH_EFI_MNT}" &>/dev/null
+	okay_failedexit $?
+	echo "	Creating directories:"
+	echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_EFIBOOT}: "
+	sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_EFIBOOT}" &>/dev/null
+	okay_failedexit $?
+	echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_BOOTGRUB}: "
+	sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_BOOTGRUB}" &>/dev/null
+	okay_failedexit $?
+	echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_HASHES}: "
+	sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_HASHES}" &>/dev/null
+	okay_failedexit $?
+	echo
+
+	# Add specified ISO images
+	#############################
+	if [ -n "${LST_ISO}" ] && [ ${SKIP_REMAINING} -eq 0 ]; then
+		echo -e "${TXT_UNDERLINE}Add specified ISO images:${TXT_NORMAL}"
+		for tmp_index in ${!LST_ISO[@]}; do
+			tmp_iso_img="${LST_ISO[${tmp_index}]}"
+			tmp_iso_filename=`basename "${tmp_iso_img}"`
+			echo -n "	Adding ${tmp_iso_filename}: "
+			err_msg=`device_add_iso_image "${DEV_PATH}" "${PARTITION_NUM}" "${tmp_iso_img}" "${tmp_iso_filename}"`
 			if [ ${?} -eq 0 ]; then
 				echo "Okay"
 			else
 				echo "${err_msg}"
-				ERR_SKIP=1
+				SKIP_REMAINING=1
 				break;
 			fi
-		else
-			echo "No"
-		fi
-		echo -n "		Unmounting ISO image: "
-		sudo umount "${PATH_ISO_MNT}" &>/dev/null
-		if [ ${?} -eq 0 ]; then
-			echo "Okay"
-		else
-			echo "Failed"
-			ERR_SKIP=1
-			break;
-		fi
-		PARTITION_NUM=$((${PARTITION_NUM}+1))
-	done
+			echo -n "		Mounting ISO image: "
+			err_msg=`sudo mount "/dev/disk/by-partlabel/${tmp_iso_filename}" "${PATH_ISO_MNT}" 2>&1`
+			if [ ${?} -eq 0 ]; then
+				echo "Okay"
+			else
+				echo "Failed: ${err_msg}"
+				SKIP_REMAINING=1
+				break;
+			fi
+			echo -n "		Checking if bootable: "
+			if [ -d "${PATH_ISO_MNT}/boot" ]; then
+				echo "Yes"
+
+				echo -n "		Copying EFI files: "
+				err_msg=`efi_copy_from_iso "${PATH_ISO_MNT}" "${PATH_EFI_MNT}"`
+				if [ ${?} -eq 0 ]; then
+					echo "Okay"
+				else
+					echo "${err_msg}"
+					SKIP_REMAINING=1
+					break;
+				fi
+			else
+				echo "No"
+			fi
+			echo -n "		Unmounting ISO image: "
+			sudo umount "${PATH_ISO_MNT}" &>/dev/null
+			if [ ${?} -eq 0 ]; then
+				echo "Okay"
+			else
+				echo "Failed"
+				SKIP_REMAINING=1
+				break;
+			fi
+			PARTITION_NUM=$((${PARTITION_NUM}+1))
+		done
+		echo
+	fi
+
+	# Clean up
+	#############################
+	echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
+	echo -n "	Unmounting EFI System partition: "
+	sudo umount "${PATH_EFI_MNT}" &>/dev/null
+	okay_failedexit $?
+	if [ ${DIR_MNT_EXISTS} -eq 0 ]; then
+		echo -n "	Deleting .${DIR_MNT#${DIR_PWD}}: "
+		rm -rf "${DIR_MNT}" &>/dev/null
+		okay_failedexit $?
+	fi
+	if [ ${DIR_TMP_EXISTS} -eq 0 ]; then
+		echo -n "	Deleting .${DIR_TMP#${DIR_PWD}}: "
+		rm -rf "${DIR_TMP}" &>/dev/null
+		okay_failedexit $?
+	fi
 	echo
 fi
 
-# Clean up
-#############################
-echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
-echo -n "	Unmounting EFI System partition: "
-sudo umount "${PATH_EFI_MNT}" &>/dev/null
-okay_failedexit $?
-if [ ${DIR_MNT_EXISTS} -eq 0 ]; then
-	echo -n "	Deleting .${DIR_MNT#${DIR_PWD}}: "
-	rm -rf "${DIR_MNT}" &>/dev/null
-	okay_failedexit $?
-fi
-if [ ${DIR_TMP_EXISTS} -eq 0 ]; then
-	echo -n "	Deleting .${DIR_TMP#${DIR_PWD}}: "
-	rm -rf "${DIR_TMP}" &>/dev/null
-	okay_failedexit $?
-fi
-echo
-
-if [ ${ERR_SKIP} -eq 1 ]; then
+if [ ${SKIP_REMAINING} -eq 1 ]; then
 	echo "!!! Failed to create USB key !!!"
 fi
