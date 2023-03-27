@@ -198,7 +198,7 @@ DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
 DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
 ERR_SKIP=0							# If set, skip any remaining items
 LST_ARCH=""							# Architecture list
-LST_ISO=""							# ISO image path list
+LST_ISO=()							# ISO image path array
 LST_PKG=""							# Package list
 PARTITION_NUM=1							# Partition counter
 PATH_EFI_DEV=							# USB key EFI partition path
@@ -226,8 +226,7 @@ while getopts ":ha:d:p:t:I:" arg; do
 		exit 0
 		;;
 	I)
-		if [ -n "${LST_ISO}" ]; then LST_ISO+=" "; fi
-		LST_ISO+=${OPTARG}
+		LST_ISO+=( "${OPTARG}" )
 		;;
 	p)
 		if [ -n "${LST_PKG}" ]; then LST_PKG+=" "; fi
@@ -360,7 +359,8 @@ echo
 #############################
 if [ -n "${LST_ISO}" ] && [ ${ERR_SKIP} -eq 0 ]; then
 	echo -e "${TXT_UNDERLINE}Add specified ISO images:${TXT_NORMAL}"
-	for tmp_iso_img in ${LST_ISO}; do
+	for tmp_index in ${!LST_ISO[@]}; do
+		tmp_iso_img="${LST_ISO[${tmp_index}]}"
 		tmp_iso_filename=`basename "${tmp_iso_img}"`
 		echo -n "	Adding ${tmp_iso_filename}: "
 		err_msg=`device_add_iso_image "${DEV_PATH}" "${PARTITION_NUM}" "${tmp_iso_img}" "${tmp_iso_filename}"`
