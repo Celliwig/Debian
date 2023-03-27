@@ -380,14 +380,21 @@ if [ -n "${LST_ISO}" ] && [ ${ERR_SKIP} -eq 0 ]; then
 			ERR_SKIP=1
 			break;
 		fi
-		echo -n "		Copying EFI files: "
-		err_msg=`efi_copy_from_iso "${PATH_ISO_MNT}" "${PATH_EFI_MNT}"`
-		if [ ${?} -eq 0 ]; then
-			echo "Okay"
+		echo -n "		Checking if bootable: "
+		if [ -d "${PATH_ISO_MNT}/boot" ]; then
+			echo "Yes"
+
+			echo -n "		Copying EFI files: "
+			err_msg=`efi_copy_from_iso "${PATH_ISO_MNT}" "${PATH_EFI_MNT}"`
+			if [ ${?} -eq 0 ]; then
+				echo "Okay"
+			else
+				echo "${err_msg}"
+				ERR_SKIP=1
+				break;
+			fi
 		else
-			echo "${err_msg}"
-			ERR_SKIP=1
-			break;
+			echo "No"
 		fi
 		echo -n "		Unmounting ISO image: "
 		sudo umount "${PATH_ISO_MNT}" &>/dev/null
