@@ -177,6 +177,21 @@ isosrc_download_files () {
 	isosrc_url="${1}"
 	isosrc_path_save="${2}"
 
+	# Accept files from ISO source
+	#   SHA*SUMS - SHAx hashes of the files
+	#   SHA*SUMS.sign - Corresponding signature file
+	#   *.iso - ISO image files
+	#   *.jigdo - Used by 'jigdo' to create ISO image
+	#   *.template - Used by 'jigdo' to create ISO image
+	##########################################################
+	isosrc_files_accept="SHA*SUMS,SHA*SUMS.sign,*.iso,*.jigdo,*.template"
+	# Used for testing (ignores the ISO files)
+	#isosrc_files_accept="SHA*SUMS,SHA*SUMS.sign,*.jigdo,*.template"
+
+	# Reject files from ISO source
+	##########################################################
+	isosrc_files_reject="robots.txt"
+
 	# Download files using wget
 	#   -q: quiet
 	#   -nd: don't create directory hierarchy
@@ -187,7 +202,7 @@ isosrc_download_files () {
 	#   -A: comma seperate list of files to accept
 	#   -P: save location
 	##########################################################
-	err_msg=`wget -nv -nd --https-only -r -l1 -np -A 'SHA*SUMS,SHA*SUMS.sign,*.iso' -P "${isosrc_path_save}" "${isosrc_url}" 2>&1 1>/dev/null`
+	err_msg=`wget -nv -nd --https-only -r -l1 -np -A "${isosrc_files_accept}" -R "${isosrc_files_reject}" -P "${isosrc_path_save}" "${isosrc_url}" 2>&1 1>/dev/null`
 	if [ ${?} -ne 0 ]; then
 		echo "${err_msg}"
 		return 1
@@ -335,6 +350,8 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 			download_path="${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}"
 			download_url=`echo "${ISOSRC_DEBIAN_URLBASE}" | sed -e "s|###VERSION###|${ISOSRC_DEBIAN_VER}|" -e "s|###ARCHITECTURE###|${tmp_arch}|" -e "s|###TYPE###|${ISOSRC_DEBIAN_TYPE_HTTPS}|"`
 			echo "		Architecture: ${tmp_arch}"
+			# Delete existing directory (and files)
+			rm -rf "${download_path}" &>/dev/null
 			echo -n "			Creating .${download_path#${DIR_PWD}}: "
 			mkdir -p "${download_path}" &>/dev/null
 			if [ ${?} -eq 0 ]; then
@@ -363,7 +380,7 @@ fi
 
 # Skip USB key creation if just downloading files
 ##########################################################
-if [ ${DLOAD_ONLY} -eq 0 ]; then
+if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 	# User confirmation
 	#############################
 	echo "The device ${DEV_PATH} will be completely wiped."
