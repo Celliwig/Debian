@@ -142,6 +142,32 @@ device_add_iso_image () {
 	return 0
 }
 
+# Copy EFI file from ISO image to EFI partition
+efi_copy_from_iso () {
+	path_source="${1}"
+	path_target="${2}"
+
+	# Copy EFI binaries
+	path_efi_bin="/EFI/boot/"
+	sudo cp "${path_source}${path_efi_bin}"* "${path_target}${path_efi_bin}"
+	if [ ${?} -ne 0 ]; then
+		echo "Failed to copy ${path_efi_bin}"
+		return 1
+	fi
+
+	# Copy GRUB resources
+	path_grub_rsc="/boot/grub/"
+	for tmp_rsc in `find "${path_source}${path_grub_rsc}" -maxdepth 1 -mindepth 1 ! -name grub.cfg ! -name efi.img`; do
+		sudo cp -r "${tmp_rsc}" "${path_target}${path_grub_rsc}"
+		if [ ${?} -ne 0 ]; then
+			echo "Failed to copy ${path_grub_rsc}"
+			return 1
+		fi
+	done
+
+	return 0
+}
+
 # Check for used commands
 #############################
 command_check blockdev						# Check for 'blockdev' command
@@ -156,6 +182,9 @@ command_check sudo						# Check for 'sudo' command
 
 # Defines
 #############################
+PATH_EFI_EFIBOOT="/EFI/boot"					# Path to EFI GRUB binaries
+PATH_EFI_BOOTGRUB="/boot/grub"					# Path to GRUB resources
+PATH_EFI_HASHES="/hashes"					# Base directory of store for hashes/signatures
 TXT_UNDERLINE="\033[1m\033[4m"					# Used to pretty print output
 TXT_NORMAL="\033[0m"
 
@@ -315,6 +344,16 @@ okay_failedexit $?
 echo -n "	Mounting EFI System partition (.${PATH_EFI_MNT#${DIR_PWD}}): "
 sudo mount -t vfat "${PATH_EFI_DEV}" "${PATH_EFI_MNT}" &>/dev/null
 okay_failedexit $?
+echo "	Creating directories:"
+echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_EFIBOOT}: "
+sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_EFIBOOT}" &>/dev/null
+okay_failedexit $?
+echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_BOOTGRUB}: "
+sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_BOOTGRUB}" &>/dev/null
+okay_failedexit $?
+echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_HASHES}: "
+sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_HASHES}" &>/dev/null
+okay_failedexit $?
 echo
 
 # Add specified ISO images
@@ -329,6 +368,33 @@ if [ -n "${LST_ISO}" ] && [ ${ERR_SKIP} -eq 0 ]; then
 			echo "Okay"
 		else
 			echo "${err_msg}"
+			ERR_SKIP=1
+			break;
+		fi
+		echo -n "		Mounting ISO image: "
+		sudo mount "/dev/disk/by-partlabel/${tmp_iso_filename}" "${PATH_ISO_MNT}" &>/dev/null
+		if [ ${?} -eq 0 ]; then
+			echo "Okay"
+		else
+			echo "Failed"
+			ERR_SKIP=1
+			break;
+		fi
+		echo -n "		Copying EFI files: "
+		err_msg=`efi_copy_from_iso "${PATH_ISO_MNT}" "${PATH_EFI_MNT}"`
+		if [ ${?} -eq 0 ]; then
+			echo "Okay"
+		else
+			echo "${err_msg}"
+			ERR_SKIP=1
+			break;
+		fi
+		echo -n "		Unmounting ISO image: "
+		sudo umount "${PATH_ISO_MNT}" &>/dev/null
+		if [ ${?} -eq 0 ]; then
+			echo "Okay"
+		else
+			echo "Failed"
 			ERR_SKIP=1
 			break;
 		fi
