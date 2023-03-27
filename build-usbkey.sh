@@ -63,14 +63,14 @@ arch_check () {
 # Sudo requests privileges, return priv status
 sudo_priv_check () {
 	# Request/Check sudo privileges
-	sudo -v &> /dev/null
+	sudo -v &>/dev/null
 	return ${?}
 }
 
 # Check the type of block device
 device_type_check () {
 	dev_type=$1
-	sudo lsblk -dn ${dev_type} |sed 's|^[a-z0-9]*\s*[0-9:]*\s*[0-9]*\s*[0-9]*.\s*[0-9]*\s*\([a-z]*\)\s*$|\1|'
+	sudo lsblk -dn ${dev_type} |sed 's|^[a-z0-9]*\s*[0-9:]*\s*[0-9]*\s*[0-9.]*.\s*[0-9]*\s*\([a-z]*\)\s*$|\1|'
 }
 
 # Check that a partition on a device has been created
@@ -80,7 +80,7 @@ device_part_check () {
 	partition_num="${2}"
 	partition_path=
 
-	sudo partprobe "${device_path}" &> /dev/null
+	sudo partprobe "${device_path}" &>/dev/null
 	if [ -b "${device_path}p${partition_num}" ]; then
 		partition_path="${device_path}p${partition_num}"
 	elif [ -b "${device_path}${partition_num}" ]; then
@@ -99,9 +99,54 @@ device_part_check () {
 	return 0
 }
 
+# Create an appropriately sized partition on device,
+# and copy ISO image to it
+device_add_iso_image () {
+	device_path="${1}"
+	partition_num="${2}"
+	iso_image_path="${3}"
+	iso_image_name="${4}"
+
+	# Check that the given file is actually ISO image
+	isoinfo -i "${iso_image_path}" &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "Invalid ISO image"
+		return 1
+	fi
+
+	# Calculate sector count
+	iso_image_size=`wc -c "${iso_image_path}" | sed 's|^\([0-9]*\)\s.*$|\1|'`
+	device_sector_size=`sudo blockdev --getpbsz "${device_path}"`
+	sector_count=$((${iso_image_size}/${device_sector_size}))
+
+	# Create partiton
+	sudo sgdisk --new=${partition_num}:0:+${sector_count} --typecode=${partition_num}:8300 --change-name=${partition_num}:${iso_image_name} "${device_path}" &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "Failed to create partition"
+		return 1
+	fi
+	# Check partition
+	iso_image_partition=`device_part_check "${device_path}" ${partition_num}`
+	if [ ${?} -ne 0 ]; then
+		echo "${iso_image_partition}"
+		return 1
+	fi
+
+	# Copy ISO image to partition
+	err_msg=`sudo dd if="${iso_image_path}" of="${iso_image_partition}" bs=${device_sector_size} status=noxfer 2>&1`
+	if [ ${?} -ne 0 ]; then
+		echo "Failed to copy ISO image - ${err_msg}"
+		return 1
+	fi
+
+	return 0
+}
+
 # Check for used commands
 #############################
 command_check blockdev						# Check for 'blockdev' command
+command_check dd						# Check for 'dd' command
+command_check isoinfo						# Check for 'isoinfo' command
 command_check lsblk						# Check for 'lsblk' command
 command_check mkfs.vfat						# Check for 'mkfs.vfat' command
 command_check partprobe						# Check for 'partprobe' command
@@ -122,6 +167,7 @@ DIR_MNT="${DIR_PWD}/mnt"					# Directory to use for mount points
 DIR_MNT_EXISTS=0						# Flag whether mount directory was created or not
 DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
 DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
+ERR_SKIP=0							# If set, skip any remaining items
 LST_ARCH=""							# Architecture list
 LST_ISO=""							# ISO image path list
 LST_PKG=""							# Package list
@@ -217,7 +263,7 @@ if [[ "${DEV_TYPE}" != "disk" ]] && [[ "${DEV_TYPE}" != "loop" ]]; then
 	echo "	Error: Wrong device type - ${DEV_TYPE}" >&2
 	exit 1
 fi
-mount |grep "${DEV_PATH}" &> /dev/null
+mount |grep "${DEV_PATH}" &>/dev/null
 if [ $? -eq 0 ]; then
 	echo "	Error: Device mounted - ${DEV_PATH}" >&2
 	exit 1
@@ -237,14 +283,14 @@ echo
 echo -e "${TXT_UNDERLINE}Creating directories:${TXT_NORMAL}"
 if [ -d "${DIR_MNT}" ]; then DIR_MNT_EXISTS=1; fi
 echo -n "	Create .${PATH_EFI_MNT#${DIR_PWD}}: "
-mkdir -p "${PATH_EFI_MNT}" &> /dev/null
+mkdir -p "${PATH_EFI_MNT}" &>/dev/null
 okay_failedexit $?
 echo -n "	Create .${PATH_ISO_MNT#${DIR_PWD}}: "
-mkdir -p "${PATH_ISO_MNT}" &> /dev/null
+mkdir -p "${PATH_ISO_MNT}" &>/dev/null
 okay_failedexit $?
 if [ -d "${DIR_TMP}" ]; then DIR_TMP_EXISTS=1; fi
 echo -n "	Create .${DIR_TMP#${DIR_PWD}}: "
-mkdir -p "${DIR_TMP}" &> /dev/null
+mkdir -p "${DIR_TMP}" &>/dev/null
 okay_failedexit $?
 echo
 
@@ -252,34 +298,41 @@ echo
 #############################
 echo -e "${TXT_UNDERLINE}Creating EFI partition: ${DEV_PATH}${TXT_NORMAL}"
 echo -n "	Wiping partition table: "
-sudo sgdisk --zap-all "${DEV_PATH}" &> /dev/null
+sudo sgdisk --zap-all "${DEV_PATH}" &>/dev/null
 okay_failedexit $?
 echo -n "	Create EFI System partition (256MB): "
-sudo sgdisk --new=1:0:+256M --typecode=1:ef00 --change-name=1:DI-EFI "${DEV_PATH}" &> /dev/null
+sudo sgdisk --new=1:0:+256M --typecode=1:ef00 --change-name=1:DI-EFI "${DEV_PATH}" &>/dev/null
 okay_failedexit $?
 PATH_EFI_DEV=`device_part_check "${DEV_PATH}" 1`
 if [ ${?} -ne 0 ]; then
 	echo "	Error: ${PATH_EFI_DEV}" >&2
 	exit 1
 fi
-PARTITION_NUM=$((${PARTITION_NUM+1))
+PARTITION_NUM=$((${PARTITION_NUM}+1))
 echo -n "	Formating EFI System partition (${PATH_EFI_DEV}): "
-sudo mkfs.vfat -F32 -n DI-EFI "${PATH_EFI_DEV}" &> /dev/null
+sudo mkfs.vfat -F32 -n DI-EFI "${PATH_EFI_DEV}" &>/dev/null
 okay_failedexit $?
 echo -n "	Mounting EFI System partition (.${PATH_EFI_MNT#${DIR_PWD}}): "
-sudo mount -t vfat "${PATH_EFI_DEV}" "${PATH_EFI_MNT}" &> /dev/null
+sudo mount -t vfat "${PATH_EFI_DEV}" "${PATH_EFI_MNT}" &>/dev/null
 okay_failedexit $?
 echo
 
 # Add specified ISO images
 #############################
-if [ -n "${LST_ISO}" ]; then
+if [ -n "${LST_ISO}" ] && [ ${ERR_SKIP} -eq 0 ]; then
 	echo -e "${TXT_UNDERLINE}Add specified ISO images:${TXT_NORMAL}"
 	for tmp_iso_img in ${LST_ISO}; do
-		iso_filename=`basename "${tmp_iso_img}"`
-		echo -n "	Adding ${iso_filename}: "
-		echo
-		PARTITION_NUM=$((${PARTITION_NUM+1))
+		tmp_iso_filename=`basename "${tmp_iso_img}"`
+		echo -n "	Adding ${tmp_iso_filename}: "
+		err_msg=`device_add_iso_image "${DEV_PATH}" "${PARTITION_NUM}" "${tmp_iso_img}" "${tmp_iso_filename}"`
+		if [ ${?} -eq 0 ]; then
+			echo "Okay"
+		else
+			echo "${err_msg}"
+			ERR_SKIP=1
+			break;
+		fi
+		PARTITION_NUM=$((${PARTITION_NUM}+1))
 	done
 	echo
 fi
@@ -288,17 +341,20 @@ fi
 #############################
 echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
 echo -n "	Unmounting EFI System partition: "
-sudo umount "${PATH_EFI_MNT}" &> /dev/null
+sudo umount "${PATH_EFI_MNT}" &>/dev/null
 okay_failedexit $?
 if [ ${DIR_MNT_EXISTS} -eq 0 ]; then
 	echo -n "	Deleting .${DIR_MNT#${DIR_PWD}}: "
-	rm -rf "${DIR_MNT}" &> /dev/null
+	rm -rf "${DIR_MNT}" &>/dev/null
 	okay_failedexit $?
 fi
 if [ ${DIR_TMP_EXISTS} -eq 0 ]; then
 	echo -n "	Deleting .${DIR_TMP#${DIR_PWD}}: "
-	rm -rf "${DIR_TMP}" &> /dev/null
+	rm -rf "${DIR_TMP}" &>/dev/null
 	okay_failedexit $?
 fi
 echo
 
+if [ ${ERR_SKIP} -eq 1 ]; then
+	echo "!!! Failed to create USB key !!!"
+fi
