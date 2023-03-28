@@ -384,14 +384,18 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 			jigdo_cachedir="${DIR_TMP}${PATH_JIGDO_CACHE}"
 
 			# Check jigdo default mirror
-			echo -n "	Checking jigdo defaults [${HOME}/.jigdo-lite]: "
-			grep "debianMirror='http://ftp.uk.debian.org/debian/'" "${HOME}/.jigdo-lite" &>/dev/null
+			echo -n "	Checking jigdo default mirror [~/.jigdo-lite]: "
+			grep "debianMirror='http://ftp.uk.debian.org/debian/'" ~/.jigdo-lite &>/dev/null
 			if [ ${?} -eq 0 ]; then
 				echo "Okay"
 			else
 				echo "Failed: Default mirror incorrect."
 				SKIP_REMAINING=1
 			fi
+			# Check jigdo filesPerFetch setting
+			echo -n "	Checking jigdo filesPerFetch [~/.jigdo-lite]: "
+			jigdo_conf_fpf=`grep -E "filesPerFetch='[0-9]*'" ~/.jigdo-lite`
+			echo "${jigdo_conf_fpf:15:-1}"
 
 			if [ ${SKIP_REMAINING} -eq 0 ]; then
 				echo "	Downloading additional ISOs using jigdo:"
@@ -422,6 +426,16 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 						SKIP_REMAINING=1
 						break;
 					fi
+					echo -n "			Validating downloads: "
+					# Throw error
+					ls monkeybutt &>/dev/null
+					if [ ${?} -eq 0 ]; then
+						echo "Okay"
+					else
+						echo "Failed: ${err_msg}"
+						SKIP_REMAINING=1
+						break;
+					fi
 
 					echo "			Scanning for packages: "
 					for tmp_pkg in ${LST_PKG}; do
@@ -433,12 +447,24 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 							# Check if already downloaded
 							if [ -f "${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}/${tmp_jigdo_stripped}.iso" ]; then
 								echo "Exists"
+							elif [ -f "${download_path}/${tmp_jigdo_stripped}.iso" ]; then
+								echo "Exists"
 							else
-								cd "${download_path}"
+								cd "${download_path}" &>/dev/null
+								if [ ${?} -ne 0 ]; then
+									echo "Failed to change directory"
+									SKIP_REMAINING=1
+									break 3
+								fi
 								echo -n "Downloading - "
 								jigdo-lite --scan "${jigdo_cachedir}" --noask "${tmp_jigdo}" &>/dev/null
 								retval=${?}
-								cd -
+								cd - &>/dev/null
+								if [ ${?} -ne 0 ]; then
+									echo "Failed to change directory"
+									SKIP_REMAINING=1
+									break 3
+								fi
 								if [ ${retval} -eq 0 ]; then
 									echo "Okay"
 								else
