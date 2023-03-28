@@ -216,6 +216,7 @@ isosrc_download_files () {
 command_check blockdev						# Check for 'blockdev' command
 command_check dd						# Check for 'dd' command
 command_check isoinfo						# Check for 'isoinfo' command
+command_check jigdo-lite					# Check for 'jigdo-lite' command
 command_check lsblk						# Check for 'lsblk' command
 command_check mkfs.vfat						# Check for 'mkfs.vfat' command
 command_check partprobe						# Check for 'partprobe' command
@@ -223,6 +224,7 @@ command_check sed						# Check for 'sed' command
 command_check sgdisk						# Check for 'sgdisk' command
 command_check sudo						# Check for 'sudo' command
 command_check wget						# Check for 'wget' command
+command_check zgrep						# Check for 'zgrep' command
 
 # Defines
 #############################
@@ -257,6 +259,7 @@ PATH_EFI_DEV=							# USB key EFI partition path
 PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
 PATH_ISO_DEV=							# ISO image partition path
 PATH_ISO_MNT="${DIR_MNT}/iso"					# ISO image partition mount path
+PATH_JIGDO_CACHE="/jigdo-cache"					# Temporary directory for jigdo files
 SKIP_REMAINING=0						# If set, skip any remaining items
 
 # Parse arguments
@@ -338,6 +341,9 @@ okay_failedexit $?
 echo -n "	Create .${DIR_TMP#${DIR_PWD}}${PATH_DLOAD_JIGDO}: "
 mkdir -p "${DIR_TMP}${PATH_DLOAD_JIGDO}" &>/dev/null
 okay_failedexit $?
+echo -n "	Create .${DIR_TMP#${DIR_PWD}}${PATH_JIGDO_CACHE}: "
+mkdir -p "${DIR_TMP}${PATH_JIGDO_CACHE}" &>/dev/null
+okay_failedexit $?
 echo
 
 # Download files using HTTPS & jigdo if necessary
@@ -371,6 +377,80 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 				break;
 			fi
 		done
+
+		# Check if any packages listed
+		if [ -n "${LST_PKG}" ] && [ ${SKIP_REMAINING} -eq 0 ]; then
+			# Directory to cache downloaded packages
+			jigdo_cachedir="${DIR_TMP}${PATH_JIGDO_CACHE}"
+
+			# Check jigdo default mirror
+			echo -n "	Checking jigdo defaults [${HOME}/.jigdo-lite]: "
+			grep "debianMirror='http://ftp.uk.debian.org/debian/'" "${HOME}/.jigdo-lite" &>/dev/null
+			if [ ${?} -eq 0 ]; then
+				echo "Okay"
+			else
+				echo "Failed: Default mirror incorrect."
+				SKIP_REMAINING=1
+			fi
+
+			if [ ${SKIP_REMAINING} -eq 0 ]; then
+				echo "	Downloading additional ISOs using jigdo:"
+				for tmp_arch in ${LST_ARCH}; do
+					# Clear jigdo cache directory
+					rm -rf "${jigdo_cachedir}"/* &>/dev/null
+
+					download_path="${DIR_TMP}${PATH_DLOAD_JIGDO}/${tmp_arch}"
+					download_url=`echo "${ISOSRC_DEBIAN_URLBASE}" | sed -e "s|###VERSION###|${ISOSRC_DEBIAN_VER}|" -e "s|###ARCHITECTURE###|${tmp_arch}|" -e "s|###TYPE###|${ISOSRC_DEBIAN_TYPE_JIGDO}|"`
+					echo "		Architecture: ${tmp_arch}"
+					# Delete existing directory (and files)
+					rm -rf "${download_path}" &>/dev/null
+					echo -n "			Creating .${download_path#${DIR_PWD}}: "
+					mkdir -p "${download_path}" &>/dev/null
+					if [ ${?} -eq 0 ]; then
+						echo "Okay"
+					else
+						echo "Failed"
+						SKIP_REMAINING=1
+						break;
+					fi
+					echo -n "			Downloading ${download_url}: "
+					err_msg=`isosrc_download_files "${download_url}" "${download_path}"`
+					if [ ${?} -eq 0 ]; then
+						echo "Okay"
+					else
+						echo "Failed: ${err_msg}"
+						SKIP_REMAINING=1
+						break;
+					fi
+
+					echo -n "			Scanning for packages: "
+					for tmp_pkg in ${LST_PKG}; do
+						echo "				${tmp_pkg}:"
+						# Scan jigdo files for package name
+						for tmp_jigdo in `zgrep -l "/${tmp_pkg}_" "${download_path}"/*.jigdo`; do
+							echo -n "				${tmp_jigdo%\.jigdo} - "
+							# Check if already downloaded
+							if [ -f "${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}/${tmp_jigdo%\.jigdo}.iso" ]; then
+								echo "Exists"
+							else
+								echo -n "Downloading - "
+								jigdo-lite --scan "${jigdo_cachedir}" --noask &>/dev/null
+								if [ ${?} -eq 0 ]; then
+									echo "Okay"
+								else
+									echo "Failed"
+									SKIP_REMAINING=1
+									break 3
+								fi
+							fi
+						done
+					done
+				done
+			fi
+		fi
+
+		# Set flag to mark download complete
+		if [ ${SKIP_REMAINING} -eq 0 ]; then DLOAD_DONE=1; fi
 	else
 		echo "	Failed to download files, no architectures given"
 		SKIP_REMAINING=1
