@@ -423,19 +423,23 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 						break;
 					fi
 
-					echo -n "			Scanning for packages: "
+					echo "			Scanning for packages: "
 					for tmp_pkg in ${LST_PKG}; do
 						echo "				${tmp_pkg}:"
 						# Scan jigdo files for package name
 						for tmp_jigdo in `zgrep -l "/${tmp_pkg}_" "${download_path}"/*.jigdo`; do
-							echo -n "				${tmp_jigdo%\.jigdo} - "
+							tmp_jigdo_stripped=`basename "${tmp_jigdo}" ".jigdo"`
+							echo -n "					${tmp_jigdo_stripped} - "
 							# Check if already downloaded
-							if [ -f "${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}/${tmp_jigdo%\.jigdo}.iso" ]; then
+							if [ -f "${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}/${tmp_jigdo_stripped}.iso" ]; then
 								echo "Exists"
 							else
+								cd "${download_path}"
 								echo -n "Downloading - "
-								jigdo-lite --scan "${jigdo_cachedir}" --noask &>/dev/null
-								if [ ${?} -eq 0 ]; then
+								jigdo-lite --scan "${jigdo_cachedir}" --noask "${tmp_jigdo}" &>/dev/null
+								retval=${?}
+								cd -
+								if [ ${retval} -eq 0 ]; then
 									echo "Okay"
 								else
 									echo "Failed"
