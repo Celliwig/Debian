@@ -214,6 +214,7 @@ isosrc_download_files () {
 #verify_hash_files () {
 #}
 
+# Verify ISO images using hash files
 verify_iso_images () {
 	source_path="${1}"
 	padding="${2}"
@@ -278,6 +279,7 @@ verify_iso_images () {
 	return ${retval}
 }
 
+# Copy hash files and signatures to EFI partition
 verify_files_copy () {
 	source_path="${1}"
 	target_path="${2}"
@@ -299,12 +301,69 @@ verify_files_copy () {
 	return 0
 }
 
+# Initialise GPG keyring (if needed)
+# Returns path to temporary GPG keyring (if created)
+gpg_keyring_init () {
+	tmp_path="${1}"
+	keyring_path="${tmp_path}/keyring.gpg"
+	have_keys=0
+	retval_txt=""
+
+	## Check distribution name, as keys
+	## should already be available in Debian
+	#distro_name=`lsb_release -is`
+	#if [[ "${distro_name}" == "Debian" ]]; then return 0; fi
+
+	# Check if keys are already available
+	gpg_key_chk=( "DF9B9C49EAA9298432589D76DA87E80D6294BE9B" )
+	for tmp_gpgkey in "${gpg_key_chk[@]}"; do
+		gpg --list-public-keys "${tmp_gpgkey}" &>/dev/null
+		if [ ${?} -eq 0 ]; then
+			have_keys=1
+		else
+			have_keys=0
+			break
+		fi
+	done
+
+	# Create temporary keyring, if keys aren't available
+	if [ ${have_keys} -eq 0 ]; then
+		retval_txt="${keyring_path}"
+		# Check if keyring exists already
+		if [ ! -f "${keyring_path}" ]; then
+			# Create it if it doesn't
+			err_msg=`gpg --no-default-keyring --keyring ${keyring_path} -k 2>&1`
+			if [ ${?} -ne 0 ]; then
+				echo "${err_msg}"
+				return 1
+			fi
+		fi
+		# Check if keys are already available
+		for tmp_gpgkey in "${gpg_key_chk[@]}"; do
+			# Check if this keyring has the key
+			gpg --no-default-keyring --keyring ${keyring_path} --list-public-keys "${tmp_gpgkey}" &>/dev/null
+			if [ ${?} -ne 0 ]; then
+				err_msg=`gpg --no-default-keyring --keyring ${keyring_path} --keyserver keyring.debian.org --recv-keys "0x${tmp_gpgkey}" 2>&1`
+				if [ ${?} -ne 0 ]; then
+					echo "${err_msg}"
+					return 1
+				fi
+			fi
+		done
+	fi
+
+	echo "${retval_txt}"
+	return 0
+}
+
 # Check for used commands
 #############################
 command_check blockdev						# Check for 'blockdev' command
 command_check dd						# Check for 'dd' command
+command_check gpg						# Check for 'gpg' command
 command_check isoinfo						# Check for 'isoinfo' command
 command_check jigdo-lite					# Check for 'jigdo-lite' command
+command_check lsb_release					# Check for 'lsb_release' command
 command_check lsblk						# Check for 'lsblk' command
 command_check mkfs.vfat						# Check for 'mkfs.vfat' command
 command_check partprobe						# Check for 'partprobe' command
@@ -337,6 +396,7 @@ DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
 DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
 DLOAD_ONLY=0							# When set, only download selected files
 DLOAD_DONE=0							# When set, skip downloading files
+GPG_ARGS=""							# Additional arguments to pass to GPG
 LST_ARCH=""							# Architecture list
 LST_ISO=()							# ISO image path array
 LST_PKG=""							# Package list
@@ -432,6 +492,23 @@ okay_failedexit $?
 echo -n "	Create .${DIR_TMP#${DIR_PWD}}${PATH_JIGDO_CACHE}: "
 mkdir -p "${DIR_TMP}${PATH_JIGDO_CACHE}" &>/dev/null
 okay_failedexit $?
+echo
+
+# Check GPG keyring, initialise if necessary
+##########################################################
+echo -e "${TXT_UNDERLINE}GPG keyring:${TXT_NORMAL}"
+echo -n "	Initialising: "
+GPG_ARGS=`gpg_keyring_init "${DIR_TMP}"`
+if [ ${?} -eq 0 ]; then
+	if [ -n "${GPG_ARGS}" ]; then
+		echo "Using: ${GPG_ARGS#--no-default-keyring --keyring }"
+	else
+		echo "Default used"
+	fi
+else
+	echo "Failed: ${GPG_ARGS}"
+	exit
+fi
 echo
 
 # Download files using HTTPS & jigdo if necessary
