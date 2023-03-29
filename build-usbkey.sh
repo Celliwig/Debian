@@ -211,8 +211,66 @@ isosrc_download_files () {
 	return 0
 }
 
-#verify_hash_files () {
-#}
+# Verify hash files using signatures
+verify_hash_files () {
+	source_path="${1}"
+	gpg_keyring="${2}"
+	padding="${3}"
+	retval=1
+
+	# Create text padding
+	padding_txt=""
+	for (( i=1; i<=${padding}; i++ )); do
+		padding_txt+="	"
+	done
+
+	# Change to source directory
+	cd "${source_path}" &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "${padding_txt}Failed to change directory"
+		return 1
+	fi
+	# Search for hash files
+	for tmp_hashfile in `ls SHA*SUMS`; do
+		case "${tmp_hashfile}" in
+		SHA256SUMS| \
+		SHA512SUMS)
+			echo -n "${padding_txt}${tmp_hashfile}.sign: "
+			if [ -f "${tmp_hashfile}.sign" ]; then
+				if [ -n "${gpg_keyring}" ]; then
+					gpg --no-default-keyring --keyring "${gpg_keyring}" --verify "${tmp_hashfile}.sign" "${tmp_hashfile}" &>/dev/null
+				else
+					gpg --verify "${tmp_hashfile}.sign" "${tmp_hashfile}" &>/dev/null
+				fi
+				if [ ${?} -eq 0 ]; then
+					echo "Valid"
+					retval=0
+				else
+					echo "Invalid"
+					retval=1
+					break
+				fi
+			else
+				echo "Failed to find signature file"
+				retval=1
+				break
+			fi
+			;;
+		*)
+			echo "${padding_txt}Unknown hashfile"
+			retval=1
+			break;
+			;;
+		esac
+	done
+	cd - &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "${padding_txt}Failed to change directory"
+		return 1
+	fi
+
+	return ${retval}
+}
 
 # Verify ISO images using hash files
 verify_iso_images () {
@@ -332,7 +390,7 @@ gpg_keyring_init () {
 		# Check if keyring exists already
 		if [ ! -f "${keyring_path}" ]; then
 			# Create it if it doesn't
-			err_msg=`gpg --no-default-keyring --keyring ${keyring_path} -k 2>&1`
+			err_msg=`gpg --no-default-keyring --keyring "${keyring_path}" -k 2>&1`
 			if [ ${?} -ne 0 ]; then
 				echo "${err_msg}"
 				return 1
@@ -341,7 +399,7 @@ gpg_keyring_init () {
 		# Check if keys are already available
 		for tmp_gpgkey in "${gpg_key_chk[@]}"; do
 			# Check if this keyring has the key
-			gpg --no-default-keyring --keyring ${keyring_path} --list-public-keys "${tmp_gpgkey}" &>/dev/null
+			gpg --no-default-keyring --keyring "${keyring_path}" --list-public-keys "${tmp_gpgkey}" &>/dev/null
 			if [ ${?} -ne 0 ]; then
 				err_msg=`gpg --no-default-keyring --keyring ${keyring_path} --keyserver keyring.debian.org --recv-keys "0x${tmp_gpgkey}" 2>&1`
 				if [ ${?} -ne 0 ]; then
@@ -754,7 +812,12 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 			# Check that the directory exists
 			if [ -d "${download_path}" ]; then
 				echo "Found"
-				#echo -n "			Verifying hashes - "
+				echo "			Verifying hashes:"
+				verify_hash_files "${download_path}" "${PATH_GPG_KEYRNG}" 4
+				if [ ${?} -ne 0 ]; then
+					SKIP_REMAINING=1
+					break;
+				fi
 				echo "			Verifying images:"
 				verify_iso_images "${download_path}" 4
 				if [ ${?} -ne 0 ]; then
