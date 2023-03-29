@@ -396,7 +396,6 @@ DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
 DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
 DLOAD_ONLY=0							# When set, only download selected files
 DLOAD_DONE=0							# When set, skip downloading files
-GPG_ARGS=""							# Additional arguments to pass to GPG
 LST_ARCH=""							# Architecture list
 LST_ISO=()							# ISO image path array
 LST_PKG=""							# Package list
@@ -405,6 +404,7 @@ PATH_DLOAD_HTTPS="/https"					# Path to store downloaded files (https)
 PATH_DLOAD_JIGDO="/jigdo"					# Path to store downloaded files (jigdo)
 PATH_EFI_DEV=							# USB key EFI partition path
 PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
+PATH_GPG_KEYRNG=""						# Path to GPG keyring
 PATH_ISO_DEV=							# ISO image partition path
 PATH_ISO_MNT="${DIR_MNT}/iso"					# ISO image partition mount path
 PATH_JIGDO_CACHE="/jigdo-cache"					# Temporary directory for jigdo files
@@ -498,15 +498,15 @@ echo
 ##########################################################
 echo -e "${TXT_UNDERLINE}GPG keyring:${TXT_NORMAL}"
 echo -n "	Initialising: "
-GPG_ARGS=`gpg_keyring_init "${DIR_TMP}"`
+PATH_GPG_KEYRNG=`gpg_keyring_init "${DIR_TMP}"`
 if [ ${?} -eq 0 ]; then
-	if [ -n "${GPG_ARGS}" ]; then
-		echo "Using: ${GPG_ARGS#--no-default-keyring --keyring }"
+	if [ -n "${PATH_GPG_KEYRNG}" ]; then
+		echo "Using .${PATH_GPG_KEYRNG#${DIR_PWD}}"
 	else
 		echo "Default used"
 	fi
 else
-	echo "Failed: ${GPG_ARGS}"
+	echo "Failed: ${PATH_GPG_KEYRNG}"
 	exit
 fi
 echo
