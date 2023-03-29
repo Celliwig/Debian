@@ -847,106 +847,55 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 			fi
 		done
 
-#		# Check if any packages listed
-#		if [ -n "${LST_PKG}" ] && [ ${SKIP_REMAINING} -eq 0 ]; then
-#			# Directory to cache downloaded packages
-#			jigdo_cachedir="${DIR_TMP}${PATH_JIGDO_CACHE}"
-#
-#			# Check jigdo default mirror
-#			echo -n "	Checking jigdo default mirror [~/.jigdo-lite]: "
-#			grep "debianMirror='http://ftp.uk.debian.org/debian/'" ~/.jigdo-lite &>/dev/null
-#			if [ ${?} -eq 0 ]; then
-#				echo "Okay"
-#			else
-#				echo "Failed: Default mirror incorrect."
-#				SKIP_REMAINING=1
-#			fi
-#			# Check jigdo filesPerFetch setting
-#			echo -n "	Checking jigdo filesPerFetch [~/.jigdo-lite]: "
-#			jigdo_conf_fpf=`grep -E "filesPerFetch='[0-9]*'" ~/.jigdo-lite`
-#			echo "${jigdo_conf_fpf:15:-1}"
-#
-#			if [ ${SKIP_REMAINING} -eq 0 ]; then
-#				echo "	Downloading additional ISOs using jigdo:"
-#				for tmp_arch in ${LST_ARCH}; do
-#					# Clear jigdo cache directory
-#					rm -rf "${jigdo_cachedir}"/* &>/dev/null
-#
-#					download_path="${DIR_TMP}${PATH_DLOAD_JIGDO}/${tmp_arch}"
-#					download_url=`echo "${ISOSRC_DEBIAN_URLBASE}" | sed -e "s|###VERSION###|${ISOSRC_DEBIAN_VER}|" -e "s|###ARCHITECTURE###|${tmp_arch}|" -e "s|###TYPE###|${ISOSRC_DEBIAN_TYPE_JIGDO}|"`
-#					echo "		Architecture: ${tmp_arch}"
-#					# Delete existing directory (and files)
-#					rm -rf "${download_path}" &>/dev/null
-#					echo -n "			Creating .${download_path#${DIR_PWD}}: "
-#					mkdir -p "${download_path}" &>/dev/null
-#					if [ ${?} -eq 0 ]; then
-#						echo "Okay"
-#					else
-#						echo "Failed"
-#						SKIP_REMAINING=1
-#						break;
-#					fi
-#					echo -n "			Downloading ${download_url}: "
-#					err_msg=`isosrc_download_files "${download_url}" "${download_path}"`
-#					if [ ${?} -eq 0 ]; then
-#						echo "Okay"
-#					else
-#						echo "Failed: ${err_msg}"
-#						SKIP_REMAINING=1
-#						break;
-#					fi
-#					echo -n "			Validating downloads: "
-#					# Throw error
-#					ls monkeybutt &>/dev/null
-#					if [ ${?} -eq 0 ]; then
-#						echo "Okay"
-#					else
-#						echo "Failed: ${err_msg}"
-#						SKIP_REMAINING=1
-#						break;
-#					fi
-#
-#					echo "			Scanning for packages: "
-#					for tmp_pkg in ${LST_PKG}; do
-#						echo "				${tmp_pkg}:"
-#						# Scan jigdo files for package name
-#						for tmp_jigdo in `zgrep -l "/${tmp_pkg}_" "${download_path}"/*.jigdo`; do
-#							tmp_jigdo_stripped=`basename "${tmp_jigdo}" ".jigdo"`
-#							echo -n "					${tmp_jigdo_stripped} - "
-#							# Check if already downloaded
-#							if [ -f "${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}/${tmp_jigdo_stripped}.iso" ]; then
-#								echo "Exists"
-#							elif [ -f "${download_path}/${tmp_jigdo_stripped}.iso" ]; then
-#								echo "Exists"
-#							else
-#								cd "${download_path}" &>/dev/null
-#								if [ ${?} -ne 0 ]; then
-#									echo "Failed to change directory"
-#									SKIP_REMAINING=1
-#									break 3
-#								fi
-#								echo -n "Downloading - "
-#								jigdo-lite --scan "${jigdo_cachedir}" --noask "${tmp_jigdo}" &>/dev/null
-#								retval=${?}
-#								cd - &>/dev/null
-#								if [ ${?} -ne 0 ]; then
-#									echo "Failed to change directory"
-#									SKIP_REMAINING=1
-#									break 3
-#								fi
-#								if [ ${retval} -eq 0 ]; then
-#									echo "Okay"
-#								else
-#									echo "Failed"
-#									SKIP_REMAINING=1
-#									break 3
-#								fi
-#							fi
-#						done
-#					done
-#				done
-#			fi
-#		fi
+		# Check if any packages listed
+		if [ -n "${LST_PKG}" ] && [ ${SKIP_REMAINING} -eq 0 ]; then
+			echo "	Checking for additional ISOs:"
+			for tmp_arch in ${LST_ARCH}; do
+				download_path="${DIR_TMP}${PATH_DLOAD_JIGDO}/${tmp_arch}"
+
+				echo -n "		${tmp_arch}: "
+				# Check that the directory exists
+				if [ -d "${download_path}" ]; then
+					echo "Found"
+					echo "			Verifying hashes:"
+					verify_hash_files "${download_path}" "${PATH_GPG_KEYRNG}" 4
+					if [ ${?} -ne 0 ]; then
+						SKIP_REMAINING=1
+						break;
+					fi
+					echo "			Verifying images:"
+					verify_iso_images "${download_path}" 4
+					if [ ${?} -ne 0 ]; then
+						SKIP_REMAINING=1
+						break;
+					fi
+					echo "			Scanning for packages: "
+					for tmp_pkg in ${LST_PKG}; do
+						echo "				${tmp_pkg}:"
+						# Scan jigdo files for package name
+						for tmp_jigdo in `zgrep -l "/${tmp_pkg}_" "${download_path}"/*.jigdo`; do
+							tmp_jigdo_stripped=`basename "${tmp_jigdo}" ".jigdo"`
+							echo -n "					${tmp_jigdo_stripped} - "
+							# Check if already downloaded
+							if [ -f "${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}/${tmp_jigdo_stripped}.iso" ]; then
+								echo "Base ISO ignored"
+							elif [ -f "${download_path}/${tmp_jigdo_stripped}.iso" ]; then
+								echo "Added"
+								LST_ISO+=( "${download_path}/${tmp_jigdo_stripped}.iso" )
+							else
+								echo "ISO image not found"
+								SKIP_REMAINING=1
+								break 3
+							fi
+						done
+					done
+				else
+					echo "Not found"
+					SKIP_REMAINING=1
+					break;
+				fi
+			done
+		fi
 
 		echo
 		# Skip everything else for testing
