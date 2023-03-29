@@ -211,6 +211,94 @@ isosrc_download_files () {
 	return 0
 }
 
+#verify_hash_files () {
+#}
+
+verify_iso_images () {
+	source_path="${1}"
+	padding="${2}"
+	retval=1
+
+	# Create text padding
+	padding_txt=""
+	for (( i=1; i<=${padding}; i++ )); do
+		padding_txt+="	"
+	done
+
+	# Change to source directory
+	cd "${source_path}" &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "${padding_txt}Failed to change directory"
+		return 1
+	fi
+	# Search for hash files
+	for tmp_hashfile in `ls SHA*SUMS`; do
+		# Extend credentials timestamp
+		# As this may take some time
+		sudo_priv_check
+
+		case "${tmp_hashfile}" in
+		SHA256SUMS)
+			echo -n "${padding_txt}SHA256SUMS: "
+			sha256sum --ignore-missing --quiet -c SHA256SUMS &>/dev/null
+			if [ ${?} -eq 0 ]; then
+				echo "Okay"
+				retval=0
+			else
+				echo "Failed"
+				retval=1
+				break
+			fi
+			;;
+		SHA512SUMS)
+			echo -n "${padding_txt}SHA512SUMS: "
+			sha512sum --ignore-missing --quiet -c SHA512SUMS &>/dev/null
+			if [ ${?} -eq 0 ]; then
+				echo "Okay"
+				retval=0
+			else
+				echo "Failed"
+				retval=1
+				break
+			fi
+			;;
+		*)
+			echo "${padding_txt}Unknown hashfile"
+			retval=1
+			break;
+			;;
+		esac
+	done
+	cd - &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "${padding_txt}Failed to change directory"
+		return 1
+	fi
+
+	return ${retval}
+}
+
+verify_files_copy () {
+	source_path="${1}"
+	target_path="${2}"
+
+	# Create target path if necessary
+	sudo mkdir -p "${target_path}" &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "Failed to create target path - ${target_path}"
+		return 1
+	fi
+
+	# Copy hash files and signatures
+	sudo cp "${source_path}"/SHA*SUMS* "${target_path}" &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "Failed to copy files"
+		return 1
+	fi
+
+	return 0
+}
+
 # Check for used commands
 #############################
 command_check blockdev						# Check for 'blockdev' command
@@ -496,7 +584,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 	echo "The device ${DEV_PATH} will be completely wiped."
 	read -r -p "ARE YOU SURE YOU WISH TO CONTINUE? (y/N): " DOCONTINUE
 	if [[ $DOCONTINUE = [Yy] ]]; then
-		echo
+		echo -n
 	else
 		echo "Operation canceled"
 		exit 1
@@ -575,6 +663,155 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 	sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_HASHES}" &>/dev/null
 	okay_failedexit $?
 	echo
+
+	# Process downloaded files
+	#############################
+	if [ ${DLOAD_DONE} -eq 1 ]; then
+		echo -e "${TXT_UNDERLINE}Processing downloaded files:${TXT_NORMAL}"
+
+		echo "	Checking for base files:"
+		for tmp_arch in ${LST_ARCH}; do
+			download_path="${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}"
+
+			echo -n "		${tmp_arch}: "
+			# Check that the directory exists
+			if [ -d "${download_path}" ]; then
+				echo "Found"
+				#echo -n "			Verifying hashes - "
+				echo "			Verifying images:"
+				verify_iso_images "${download_path}" 4
+				if [ ${?} -ne 0 ]; then
+					SKIP_REMAINING=1
+					break;
+				fi
+				echo -n "			Copying signatures & hashes - "
+				err_msg=`verify_files_copy "${download_path}" "${PATH_EFI_MNT}${PATH_EFI_HASHES}/${tmp_arch}"`
+				if [ ${?} -eq 0 ]; then
+					echo "Okay"
+				else
+					echo "Error: ${err_msg}"
+					SKIP_REMAINING=1
+					break;
+				fi
+				echo "			Searching for ISOs:"
+				# Search for ISO images
+				for tmp_iso_img in `find "${download_path}" -iname *.iso`; do
+					iso_filename=`basename "${tmp_iso_img}"`
+					echo "				${iso_filename} - Added"
+					LST_ISO+=( "${tmp_iso_img}" )
+				done
+			else
+				echo "Not found"
+				SKIP_REMAINING=1
+				break;
+			fi
+		done
+
+#		# Check if any packages listed
+#		if [ -n "${LST_PKG}" ] && [ ${SKIP_REMAINING} -eq 0 ]; then
+#			# Directory to cache downloaded packages
+#			jigdo_cachedir="${DIR_TMP}${PATH_JIGDO_CACHE}"
+#
+#			# Check jigdo default mirror
+#			echo -n "	Checking jigdo default mirror [~/.jigdo-lite]: "
+#			grep "debianMirror='http://ftp.uk.debian.org/debian/'" ~/.jigdo-lite &>/dev/null
+#			if [ ${?} -eq 0 ]; then
+#				echo "Okay"
+#			else
+#				echo "Failed: Default mirror incorrect."
+#				SKIP_REMAINING=1
+#			fi
+#			# Check jigdo filesPerFetch setting
+#			echo -n "	Checking jigdo filesPerFetch [~/.jigdo-lite]: "
+#			jigdo_conf_fpf=`grep -E "filesPerFetch='[0-9]*'" ~/.jigdo-lite`
+#			echo "${jigdo_conf_fpf:15:-1}"
+#
+#			if [ ${SKIP_REMAINING} -eq 0 ]; then
+#				echo "	Downloading additional ISOs using jigdo:"
+#				for tmp_arch in ${LST_ARCH}; do
+#					# Clear jigdo cache directory
+#					rm -rf "${jigdo_cachedir}"/* &>/dev/null
+#
+#					download_path="${DIR_TMP}${PATH_DLOAD_JIGDO}/${tmp_arch}"
+#					download_url=`echo "${ISOSRC_DEBIAN_URLBASE}" | sed -e "s|###VERSION###|${ISOSRC_DEBIAN_VER}|" -e "s|###ARCHITECTURE###|${tmp_arch}|" -e "s|###TYPE###|${ISOSRC_DEBIAN_TYPE_JIGDO}|"`
+#					echo "		Architecture: ${tmp_arch}"
+#					# Delete existing directory (and files)
+#					rm -rf "${download_path}" &>/dev/null
+#					echo -n "			Creating .${download_path#${DIR_PWD}}: "
+#					mkdir -p "${download_path}" &>/dev/null
+#					if [ ${?} -eq 0 ]; then
+#						echo "Okay"
+#					else
+#						echo "Failed"
+#						SKIP_REMAINING=1
+#						break;
+#					fi
+#					echo -n "			Downloading ${download_url}: "
+#					err_msg=`isosrc_download_files "${download_url}" "${download_path}"`
+#					if [ ${?} -eq 0 ]; then
+#						echo "Okay"
+#					else
+#						echo "Failed: ${err_msg}"
+#						SKIP_REMAINING=1
+#						break;
+#					fi
+#					echo -n "			Validating downloads: "
+#					# Throw error
+#					ls monkeybutt &>/dev/null
+#					if [ ${?} -eq 0 ]; then
+#						echo "Okay"
+#					else
+#						echo "Failed: ${err_msg}"
+#						SKIP_REMAINING=1
+#						break;
+#					fi
+#
+#					echo "			Scanning for packages: "
+#					for tmp_pkg in ${LST_PKG}; do
+#						echo "				${tmp_pkg}:"
+#						# Scan jigdo files for package name
+#						for tmp_jigdo in `zgrep -l "/${tmp_pkg}_" "${download_path}"/*.jigdo`; do
+#							tmp_jigdo_stripped=`basename "${tmp_jigdo}" ".jigdo"`
+#							echo -n "					${tmp_jigdo_stripped} - "
+#							# Check if already downloaded
+#							if [ -f "${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}/${tmp_jigdo_stripped}.iso" ]; then
+#								echo "Exists"
+#							elif [ -f "${download_path}/${tmp_jigdo_stripped}.iso" ]; then
+#								echo "Exists"
+#							else
+#								cd "${download_path}" &>/dev/null
+#								if [ ${?} -ne 0 ]; then
+#									echo "Failed to change directory"
+#									SKIP_REMAINING=1
+#									break 3
+#								fi
+#								echo -n "Downloading - "
+#								jigdo-lite --scan "${jigdo_cachedir}" --noask "${tmp_jigdo}" &>/dev/null
+#								retval=${?}
+#								cd - &>/dev/null
+#								if [ ${?} -ne 0 ]; then
+#									echo "Failed to change directory"
+#									SKIP_REMAINING=1
+#									break 3
+#								fi
+#								if [ ${retval} -eq 0 ]; then
+#									echo "Okay"
+#								else
+#									echo "Failed"
+#									SKIP_REMAINING=1
+#									break 3
+#								fi
+#							fi
+#						done
+#					done
+#				done
+#			fi
+#		fi
+
+		echo
+		# Skip everything else for testing
+		SKIP_REMAINING=1
+	fi
 
 	# Add specified ISO images
 	#############################
