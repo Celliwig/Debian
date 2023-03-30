@@ -83,12 +83,25 @@ device_part_check () {
 	partition_num="${2}"
 	partition_path=
 
+	# Rescan device
 	sudo partprobe "${device_path}" &>/dev/null
-	if [ -b "${device_path}p${partition_num}" ]; then
-		partition_path="${device_path}p${partition_num}"
-	elif [ -b "${device_path}${partition_num}" ]; then
-		partition_path="${device_path}${partition_num}"
-	else
+
+	device_found=0
+	device_sleep=1
+	for (( i=0; i<5; i++ )); do
+		if [ -b "${device_path}p${partition_num}" ]; then
+			partition_path="${device_path}p${partition_num}"
+			device_found=1
+			break
+		elif [ -b "${device_path}${partition_num}" ]; then
+			partition_path="${device_path}${partition_num}"
+			device_found=1
+			break
+		fi
+		sleep ${device_sleep}
+		device_sleep=$((${device_sleep}*2))
+	done
+	if [ ${device_found} -eq 0 ]; then
 		echo "Failed to find partition"
 		return 1
 	fi
@@ -1013,7 +1026,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 					break
 				fi
 				sleep ${umount_sleep}
-				umount_sleep=$((umount_sleep*2))
+				umount_sleep=$((${umount_sleep}*2))
 			done
 			if [ ${retval} -eq 0 ]; then
 				echo "Okay"
