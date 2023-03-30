@@ -438,6 +438,7 @@ ISOSRC_DEBIAN_URLBASE="https://cdimage.debian.org/debian-cd/###VERSION###/###ARC
 ISOSRC_DEBIAN_VER="current"
 ISOSRC_DEBIAN_TYPE_HTTPS="iso-dvd"
 ISOSRC_DEBIAN_TYPE_JIGDO="jigdo-dvd"
+ISOSRC_DEBIAN_REJECT=( "debian-update-" )
 PATH_EFI_EFIBOOT="/EFI/boot"					# Path to EFI GRUB binaries
 PATH_EFI_BOOTGRUB="/boot/grub"					# Path to GRUB resources
 PATH_EFI_HASHES="/hashes"					# Base directory of store for hashes/signatures
@@ -455,7 +456,6 @@ DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
 DLOAD_ONLY=0							# When set, only download selected files
 DLOAD_DONE=0							# When set, skip downloading files
 LST_ARCH=""							# Architecture list
-LST_ISO=()							# ISO image path array
 LST_PKG=""							# Package list
 PARTITION_NUM=1							# Partition counter
 PATH_DLOAD_HTTPS="/https"					# Path to store downloaded files (https)
@@ -467,6 +467,10 @@ PATH_ISO_DEV=							# ISO image partition path
 PATH_ISO_MNT="${DIR_MNT}/iso"					# ISO image partition mount path
 PATH_JIGDO_CACHE="/jigdo-cache"					# Temporary directory for jigdo files
 SKIP_REMAINING=0						# If set, skip any remaining items
+
+# Associative arrays
+#############################
+declare -A LST_ISO							# ISO image path array
 
 # Parse arguments
 while getopts ":ha:d:D:p:t:I:" arg; do
@@ -502,7 +506,7 @@ while getopts ":ha:d:D:p:t:I:" arg; do
 		exit 0
 		;;
 	I)
-		LST_ISO+=( "${OPTARG}" )
+		LST_ISO["${OPTARG}"]=
 		;;
 	p)
 		if [ -n "${LST_PKG}" ]; then LST_PKG+=" "; fi
@@ -838,7 +842,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 				for tmp_iso_img in `find "${download_path}" -iname *.iso`; do
 					iso_filename=`basename "${tmp_iso_img}"`
 					echo "				${iso_filename} - Added"
-					LST_ISO+=( "${tmp_iso_img}" )
+					LST_ISO["${tmp_iso_img}"]=
 				done
 			else
 				echo "Not found"
@@ -876,12 +880,19 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 						for tmp_jigdo in `zgrep -l "/${tmp_pkg}_" "${download_path}"/*.jigdo`; do
 							tmp_jigdo_stripped=`basename "${tmp_jigdo}" ".jigdo"`
 							echo -n "					${tmp_jigdo_stripped} - "
+							# Check whether to ignore ISO image
+							for tmp_reject in ${ISOSRC_DEBIAN_REJECT}; do
+								if [[ "${tmp_jigdo_stripped}" == ${tmp_reject}* ]]; then
+									echo "Rejected"
+									continue 2;
+								fi
+							done
 							# Check if already downloaded
 							if [ -f "${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}/${tmp_jigdo_stripped}.iso" ]; then
-								echo "Base ISO ignored"
+								echo "Ignored (Base ISO)"
 							elif [ -f "${download_path}/${tmp_jigdo_stripped}.iso" ]; then
 								echo "Added"
-								LST_ISO+=( "${download_path}/${tmp_jigdo_stripped}.iso" )
+								LST_ISO["${download_path}/${tmp_jigdo_stripped}.iso"]=
 							else
 								echo "ISO image not found"
 								SKIP_REMAINING=1
@@ -898,16 +909,13 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 		fi
 
 		echo
-		# Skip everything else for testing
-		SKIP_REMAINING=1
 	fi
 
 	# Add specified ISO images
 	#############################
-	if [ -n "${LST_ISO}" ] && [ ${SKIP_REMAINING} -eq 0 ]; then
+	if [ ${#LST_ISO[@]} -gt 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 		echo -e "${TXT_UNDERLINE}Add specified ISO images:${TXT_NORMAL}"
-		for tmp_index in ${!LST_ISO[@]}; do
-			tmp_iso_img="${LST_ISO[${tmp_index}]}"
+		for tmp_iso_img in ${!LST_ISO[@]}; do
 			tmp_iso_filename=`basename "${tmp_iso_img}"`
 			echo -n "	Adding ${tmp_iso_filename}: "
 			err_msg=`device_add_iso_image "${DEV_PATH}" "${PARTITION_NUM}" "${tmp_iso_img}" "${tmp_iso_filename}"`
