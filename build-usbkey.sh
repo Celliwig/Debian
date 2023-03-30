@@ -19,6 +19,7 @@ usage () {
 	echo "	-a <architecture>	Add architecture to download"
 	echo "	-d <device path>	Device path of USB key"
 	echo "	-D <only|done>		Either only download files, or assume done already"
+	echo "	-i <initrd path>	Path to additional initrd image to copy to ESP"
 	echo "	-I <ISO image path>	Path to ISO image to add"
 	echo "	-p <package>		Add a package to download the relavent ISO image for"
 	echo "	-t <directory>		Directory to use as temporary storage for downloading files"
@@ -463,6 +464,7 @@ PATH_DLOAD_JIGDO="/jigdo"					# Path to store downloaded files (jigdo)
 PATH_EFI_DEV=							# USB key EFI partition path
 PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
 PATH_GPG_KEYRNG=""						# Path to GPG keyring
+PATH_INITRD=							# Path to additional initrd image to include on ESP
 PATH_ISO_DEV=							# ISO image partition path
 PATH_ISO_MNT="${DIR_MNT}/iso"					# ISO image partition mount path
 PATH_JIGDO_CACHE="/jigdo-cache"					# Temporary directory for jigdo files
@@ -473,7 +475,7 @@ SKIP_REMAINING=0						# If set, skip any remaining items
 declare -A LST_ISO							# ISO image path array
 
 # Parse arguments
-while getopts ":ha:d:D:p:t:I:" arg; do
+while getopts ":ha:d:D:i:I:p:t:" arg; do
 	case ${arg} in
 	a)
 		arch_check ${OPTARG}
@@ -504,6 +506,9 @@ while getopts ":ha:d:D:p:t:I:" arg; do
 	h)
 		usage
 		exit 0
+		;;
+	i)
+		PATH_INITRD="${OPTARG}"
 		;;
 	I)
 		LST_ISO["${OPTARG}"]=
@@ -801,6 +806,11 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 	echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_HASHES}: "
 	sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_HASHES}" &>/dev/null
 	okay_failedexit $?
+	if [ -n "${PATH_INITRD}" ]; then
+		echo -n "	Copying additional initrd image (${PATH_INITRD#${DIR_PWD}}): "
+		sudo cp "${PATH_INITRD}" "${PATH_EFI_MNT}" &>/dev/null
+		okay_failedexit $?
+	fi
 	echo
 
 	# Process downloaded files
