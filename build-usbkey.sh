@@ -944,11 +944,23 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 				echo "No"
 			fi
 			echo -n "		Unmounting ISO image: "
-			sudo umount "${PATH_ISO_MNT}" &>/dev/null
-			if [ ${?} -eq 0 ]; then
+			# Bug fix, the mount is being held open by other programs, GNOME???
+			# Retry implemented to get around this with increasing sleep time
+			umount_sleep=1
+			retval=1
+			for (( i=0; i<5; i++ )); do
+				err_msg=`sudo umount "${PATH_ISO_MNT}" 2>&1`
+				if [ ${?} -eq 0 ]; then
+					retval=0
+					break
+				fi
+				sleep ${umount_sleep}
+				umount_sleep=$((umount_sleep*2))
+			done
+			if [ ${retval} -eq 0 ]; then
 				echo "Okay"
 			else
-				echo "Failed"
+				echo "Failed: ${err_msg}"
 				SKIP_REMAINING=1
 				break;
 			fi
