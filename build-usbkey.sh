@@ -21,6 +21,7 @@ usage () {
 	echo "	-D <only|done>		Either only download files, or assume done already"
 	echo "	-i <initrd path>	Path to additional initrd image to copy to ESP"
 	echo "	-I <ISO image path>	Path to ISO image to add"
+	echo "	-M			Create hybrid MBR/GPT partition layout and install BIOS bootloader"
 	echo "	-p <package>		Add a package to download the relavent ISO image for"
 	echo "	-t <directory>		Directory to use as temporary storage for downloading files"
 }
@@ -449,6 +450,7 @@ TXT_NORMAL="\033[0m"
 # Variables
 #############################
 DEV_PATH=							# USB device path
+DEV_LAYOUT_HYBRID=0						# Flag whether to create hybrid MBR/GPT layout or not
 DIR_PWD=`pwd`							# Current directory
 DIR_MNT="${DIR_PWD}/mnt"					# Directory to use for mount points
 DIR_MNT_EXISTS=0						# Flag whether mount directory was created or not
@@ -475,7 +477,7 @@ SKIP_REMAINING=0						# If set, skip any remaining items
 declare -A LST_ISO							# ISO image path array
 
 # Parse arguments
-while getopts ":ha:d:D:i:I:p:t:" arg; do
+while getopts ":hMa:d:D:i:I:p:t:" arg; do
 	case ${arg} in
 	a)
 		arch_check ${OPTARG}
@@ -512,6 +514,9 @@ while getopts ":ha:d:D:i:I:p:t:" arg; do
 		;;
 	I)
 		LST_ISO["${OPTARG}"]=
+		;;
+	M)
+		DEV_LAYOUT_HYBRID=1
 		;;
 	p)
 		if [ -n "${LST_PKG}" ]; then LST_PKG+=" "; fi
@@ -775,27 +780,62 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 	fi
 	echo
 
-	# Create EFI partition
+
+	# Is this hybrid layout
 	#############################
-	echo -e "${TXT_UNDERLINE}Creating EFI partition: ${DEV_PATH}${TXT_NORMAL}"
-	echo -n "	Wiping partition table: "
-	sudo sgdisk --zap-all "${DEV_PATH}" &>/dev/null
-	okay_failedexit $?
-	echo -n "	Create EFI System partition (256MB): "
-	sudo sgdisk --new=1:0:+256M --typecode=1:ef00 --change-name=1:DI-EFI "${DEV_PATH}" &>/dev/null
-	okay_failedexit $?
-	PATH_EFI_DEV=`device_part_check "${DEV_PATH}" 1`
-	if [ ${?} -ne 0 ]; then
-		echo "	Error: ${PATH_EFI_DEV}" >&2
-		exit 1
+	if [ ${DEV_LAYOUT_HYBRID} -eq 1 ]; then
+		# Create hybrid layout
+		#############################
+		echo -e "${TXT_UNDERLINE}Creating hybrid MBR/GPT layout: ${DEV_PATH}${TXT_NORMAL}"
+		echo -n "	Wiping partition table: "
+		sudo sgdisk --zap-all "${DEV_PATH}" &>/dev/null
+		okay_failedexit $?
+		echo -n "	Create BIOS boot partition (1MB): "
+		sudo sgdisk --set-alignment=1 --new=1:34:2047 --typecode=1:ef02 --change-name=1:BIOSBOOT "${DEV_PATH}" &>/dev/null
+		okay_failedexit $?
+		PARTITION_NUM=$((${PARTITION_NUM}+1))
+		echo -n "	Create EFI System partition (256MB): "
+		sudo sgdisk --new=2:0:+256M --typecode=2:ef00 --change-name=2:DI-EFI "${DEV_PATH}" &>/dev/null
+		okay_failedexit $?
+		PARTITION_NUM=$((${PARTITION_NUM}+1))
+		echo -n "	Creating hybrid layout: "
+		sudo sgdisk --hybrid=1:2 "${DEV_PATH}" &>/dev/null
+		okay_failedexit $?
+		PATH_EFI_DEV=`device_part_check "${DEV_PATH}" 2`
+		if [ ${?} -ne 0 ]; then
+			echo "	Error: ${PATH_EFI_DEV}" >&2
+			exit 1
+		fi
+	else
+		# Create GPT layout
+		#############################
+		echo -e "${TXT_UNDERLINE}Creating GPT layout: ${DEV_PATH}${TXT_NORMAL}"
+		echo -n "	Wiping partition table: "
+		sudo sgdisk --zap-all "${DEV_PATH}" &>/dev/null
+		okay_failedexit $?
+		echo -n "	Create EFI System partition (256MB): "
+		sudo sgdisk --new=1:0:+256M --typecode=1:ef00 --change-name=1:DI-EFI "${DEV_PATH}" &>/dev/null
+		okay_failedexit $?
+		PATH_EFI_DEV=`device_part_check "${DEV_PATH}" 1`
+		if [ ${?} -ne 0 ]; then
+			echo "	Error: ${PATH_EFI_DEV}" >&2
+			exit 1
+		fi
+		PARTITION_NUM=$((${PARTITION_NUM}+1))
 	fi
-	PARTITION_NUM=$((${PARTITION_NUM}+1))
 	echo -n "	Formating EFI System partition (${PATH_EFI_DEV}): "
 	sudo mkfs.vfat -F32 -n DI-EFI "${PATH_EFI_DEV}" &>/dev/null
 	okay_failedexit $?
 	echo -n "	Mounting EFI System partition (.${PATH_EFI_MNT#${DIR_PWD}}): "
 	sudo mount -t vfat "${PATH_EFI_DEV}" "${PATH_EFI_MNT}" &>/dev/null
 	okay_failedexit $?
+	# If hybrid, install GRUB
+	#############################
+	if [ ${DEV_LAYOUT_HYBRID} -eq 1 ]; then
+		echo -n "	Installing GRUB (BIOS) from host: "
+		sudo grub-install --target i386-pc --boot-directory="${PATH_EFI_MNT}/boot" "${DEV_PATH}" &>/dev/null
+		okay_failedexit $?
+	fi
 	echo "	Creating directories:"
 	echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_EFIBOOT}: "
 	sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_EFIBOOT}" &>/dev/null
