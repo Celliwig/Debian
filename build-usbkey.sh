@@ -22,6 +22,7 @@ usage () {
 	echo "	-i <initrd path>	Path to additional initrd image to copy to ESP"
 	echo "	-I <ISO image path>	Path to ISO image to add"
 	echo "	-M			Create hybrid MBR/GPT partition layout and install BIOS bootloader"
+	echo "	-m <architecture>	Create hybrid MBR/GPT partition layout and install/patch isolinux from <arch> ISO"
 	echo "	-p <package>		Add a package to download the relavent ISO image for"
 	echo "	-t <directory>		Directory to use as temporary storage for downloading files"
 }
@@ -448,22 +449,35 @@ command_check zgrep						# Check for 'zgrep' command
 
 # Defines
 #############################
+# Hybrid MBR/GPT layout types
+declare -r HYBRID_LAYOUT_GRUB=1					# Use host's GRUB as a bootloader for the hybrid MBR/GPT layout
+declare -r HYBRID_LAYOUT_ISOLINUX=2				# Use patch ISOLINUX's MBR from an ISO image as bootloader
 # ISO source (Debian)
-ISOSRC_DEBIAN_URLBASE="https://cdimage.debian.org/debian-cd/###VERSION###/###ARCHITECTURE###/###TYPE###/"
-ISOSRC_DEBIAN_VER="current"
-ISOSRC_DEBIAN_TYPE_HTTPS="iso-dvd"
-ISOSRC_DEBIAN_TYPE_JIGDO="jigdo-dvd"
-ISOSRC_DEBIAN_REJECT=( "debian-update-" )
-PATH_EFI_EFIBOOT="/EFI/boot"					# Path to EFI GRUB binaries
-PATH_EFI_BOOTGRUB="/boot/grub"					# Path to GRUB resources
-PATH_EFI_HASHES="/hashes"					# Base directory of store for hashes/signatures
-TXT_UNDERLINE="\033[1m\033[4m"					# Used to pretty print output
-TXT_NORMAL="\033[0m"
+declare -r ISOSRC_DEBIAN_URLBASE="https://cdimage.debian.org/debian-cd/###VERSION###/###ARCHITECTURE###/###TYPE###/"
+declare -r ISOSRC_DEBIAN_VER="current"
+declare -r ISOSRC_DEBIAN_TYPE_HTTPS="iso-dvd"
+declare -r ISOSRC_DEBIAN_TYPE_JIGDO="jigdo-dvd"
+declare -r ISOSRC_DEBIAN_REJECT=( "debian-update-" )
+# Paths
+declare -r PATH_DLOAD_HTTPS="/https"				# Path to store downloaded files (https)
+declate -r PATH_DLOAD_JIGDO="/jigdo"				# Path to store downloaded files (jigdo)
+declare -r PATH_EFI_EFIBOOT="/EFI/boot"				# Path to EFI GRUB binaries
+declare -r PATH_EFI_BOOTGRUB="/boot/grub"			# Path to GRUB resources
+declare -r PATH_EFI_HASHES="/hashes"				# Base directory of store for hashes/signatures
+declare -r PATH_JIGDO_CACHE="/jigdo-cache"			# Temporary directory for jigdo files
+# Pretty print
+declare -r TXT_UNDERLINE="\033[1m\033[4m"			# Used to pretty print output
+declare -r TXT_NORMAL="\033[0m"
+
+# Associative arrays
+#############################
+declare -A LST_ISO						# ISO image path array
 
 # Variables
 #############################
 DEV_PATH=							# USB device path
 DEV_LAYOUT_HYBRID=0						# Flag whether to create hybrid MBR/GPT layout or not
+DEV_LAYOUT_HYBRID_ARCH=						# If set contains the architecture of the ISO to use as source for isolinux boot
 DIR_PWD=`pwd`							# Current directory
 DIR_MNT="${DIR_PWD}/mnt"					# Directory to use for mount points
 DIR_MNT_EXISTS=0						# Flag whether mount directory was created or not
@@ -474,23 +488,16 @@ DLOAD_DONE=0							# When set, skip downloading files
 LST_ARCH=""							# Architecture list
 LST_PKG=""							# Package list
 PARTITION_NUM=1							# Partition counter
-PATH_DLOAD_HTTPS="/https"					# Path to store downloaded files (https)
-PATH_DLOAD_JIGDO="/jigdo"					# Path to store downloaded files (jigdo)
 PATH_EFI_DEV=							# USB key EFI partition path
 PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
 PATH_GPG_KEYRNG=""						# Path to GPG keyring
 PATH_INITRD=							# Path to additional initrd image to include on ESP
 PATH_ISO_DEV=							# ISO image partition path
 PATH_ISO_MNT="${DIR_MNT}/iso"					# ISO image partition mount path
-PATH_JIGDO_CACHE="/jigdo-cache"					# Temporary directory for jigdo files
 SKIP_REMAINING=0						# If set, skip any remaining items
 
-# Associative arrays
-#############################
-declare -A LST_ISO							# ISO image path array
-
 # Parse arguments
-while getopts ":hMa:d:D:i:I:p:t:" arg; do
+while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 	case ${arg} in
 	a)
 		arch_check ${OPTARG}
@@ -528,8 +535,18 @@ while getopts ":hMa:d:D:i:I:p:t:" arg; do
 	I)
 		LST_ISO["${OPTARG}"]=
 		;;
+	m)
+		arch_check "${OPTARG}"
+		if [ ${?} -eq 0 ]; then
+			DEV_LAYOUT_HYBRID_ARCH="${OPTARG}"
+			DEV_LAYOUT_HYBRID=${HYBRID_LAYOUT_ISOLINUX}
+		else
+			echo "Error: invalid argument for -m"
+			exit 1
+		fi
+		;;
 	M)
-		DEV_LAYOUT_HYBRID=1
+		DEV_LAYOUT_HYBRID=${HYBRID_LAYOUT_GRUB}
 		;;
 	p)
 		if [ -n "${LST_PKG}" ]; then LST_PKG+=" "; fi
@@ -796,7 +813,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 
 	# Is this hybrid layout
 	#############################
-	if [ ${DEV_LAYOUT_HYBRID} -eq 1 ]; then
+	if [ ${DEV_LAYOUT_HYBRID} -gt 0 ]; then
 		# Create hybrid layout
 		#############################
 		echo -e "${TXT_UNDERLINE}Creating hybrid MBR/GPT layout: ${DEV_PATH}${TXT_NORMAL}"
@@ -811,9 +828,6 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 		sudo sgdisk --new=2:0:+256M --typecode=2:ef00 --change-name=2:DI-EFI "${DEV_PATH}" &>/dev/null
 		okay_failedexit $?
 		PARTITION_NUM=$((${PARTITION_NUM}+1))
-		echo -n "	Creating hybrid layout: "
-		sudo sgdisk --hybrid=1:2 "${DEV_PATH}" &>/dev/null
-		okay_failedexit $?
 		PATH_EFI_DEV=`device_part_check "${DEV_PATH}" 2`
 		if [ ${?} -ne 0 ]; then
 			echo "	Error: ${PATH_EFI_DEV}" >&2
@@ -842,13 +856,6 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 	echo -n "	Mounting EFI System partition (.${PATH_EFI_MNT#${DIR_PWD}}): "
 	sudo mount -t vfat "${PATH_EFI_DEV}" "${PATH_EFI_MNT}" &>/dev/null
 	okay_failedexit $?
-	# If hybrid, install GRUB
-	#############################
-	if [ ${DEV_LAYOUT_HYBRID} -eq 1 ]; then
-		echo -n "	Installing GRUB (BIOS) from host: "
-		sudo grub-install --target i386-pc --boot-directory="${PATH_EFI_MNT}/boot" "${DEV_PATH}" &>/dev/null
-		okay_failedexit $?
-	fi
 	echo "	Creating directories:"
 	echo -n "		.${PATH_EFI_MNT#${DIR_PWD}}${PATH_EFI_EFIBOOT}: "
 	sudo mkdir -p "${PATH_EFI_MNT}${PATH_EFI_EFIBOOT}" &>/dev/null
@@ -1041,7 +1048,21 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 	fi
 
 	# Clean up
+	##########################################################
+	# Is this hybrid layout
 	#############################
+	if [ ${DEV_LAYOUT_HYBRID} -gt 0 ]; then
+		if [ ${DEV_LAYOUT_HYBRID} -eq ${HYBRID_LAYOUT_GRUB} ]; then
+			echo -n "	Creating hybrid layout: "
+			sudo sgdisk --hybrid=1:2 "${DEV_PATH}" &>/dev/null
+			okay_failedexit $?
+			echo -n "	Installing GRUB (BIOS) from host: "
+			sudo grub-install --target i386-pc --boot-directory="${PATH_EFI_MNT}/boot" "${DEV_PATH}" &>/dev/null
+			okay_failedexit $?
+		fi
+#		if [ ${DEV_LAYOUT_HYBRID} -eq ${HYBRID_LAYOUT_ISOLINUX} ]; then
+#		fi
+	fi
 	echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
 	echo -n "	Unmounting EFI System partition: "
 	sudo umount "${PATH_EFI_MNT}" &>/dev/null
