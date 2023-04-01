@@ -26,6 +26,7 @@ declare -r PATH_EFI_EFIBOOT="/EFI/boot"				# Path to EFI GRUB binaries
 declare -r PATH_EFI_BOOTGRUB="/boot/grub"			# Path to GRUB resources
 declare -r PATH_EFI_HASHES="/hashes"				# Base directory of store for hashes/signatures
 declare -r PATH_JIGDO_CACHE="/jigdo-cache"			# Temporary directory for jigdo files
+declare -r PATH_MBR_IMG="/mbr.img"				# Path to copy of ISOLINUX MBR
 # Pretty print
 declare -r TXT_UNDERLINE="\033[1m\033[4m"			# Used to pretty print output
 declare -r TXT_NORMAL="\033[0m"
@@ -1061,6 +1062,68 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 				fi
 			else
 				echo "No"
+			fi
+			# If it's the 1st ISO image
+			if [ ${iso_idx} -eq 0 ]; then
+				# Check whether to use ISOLINUX MBR
+				if [ ${DEV_LAYOUT_HYBRID} -eq ${HYBRID_LAYOUT_ISOLINUX} ]; then
+					echo -n "		Configuring ISOLINUX: "
+					if [ -d "${PATH_ISO_MNT}/dists/" ]; then
+						release_filepath=`find "${PATH_ISO_MNT}/dists/" -maxdepth 2 -mindepth 2 -type f -name Release`
+						if [ -n "${release_filepath}" ]; then
+							grep "Architectures: ${DEV_LAYOUT_HYBRID_ARCH}" "${release_filepath}" &>/dev/null
+							if [ ${?} -eq 0 ]; then
+								if [ -f "${PATH_ISO_MNT}/isolinux/isolinux.bin" ]; then
+									echo
+
+									isolinux_bin_offset_2048=0
+									isolinux_bin_offset_512=0
+
+									echo -n "			Copying ISOLINUX MBR: "
+									err_msg=`sudo dd "if=/dev/disk/by-partlabel/${tmp_iso_filename}" "of=${DIR_TMP}${PATH_MBR_IMG}" bs=1 count=446 status=none 2>&1`
+									if [ ${?} -eq 0 ]; then
+										echo "Okay"
+									else
+										echo "${err_msg}"
+										SKIP_REMAINING=1
+									fi
+									echo -n "			Getting isolinux.bin offset: "
+									isolinux_bin_offset_txt=`isoinfo  -i "${tmp_iso_img}" -l |grep "ISOLINUX.BIN"`
+									if [ ${?} -eq 0 ]; then
+										isolinux_bin_offset_2048=`echo "${isolinux_bin_offset_txt}" | sed 's|^[-]*\s*[0-9]*\s*[0-9]*\s*[0-9]*\s*[0-9]*\s*[A-Za-z]*\s*[0-9]*\s[0-9]*\s*\[\s*\([0-9]*\)\s*[0-9]*\]\s*ISOLINUX\.BIN;1|\1|'`
+										isolinux_bin_offset_512=$((isolinux_bin_offset_2048*2048))
+										isolinux_bin_offset_512=$((isolinux_bin_offset_512/512))
+										printf "0x%x (2048 sectors)/0x%x (512 sectors)\\n" ${isolinux_bin_offset_2048} ${isolinux_bin_offset_512}
+									else
+										echo "Failed to extract from ISO image"
+										SKIP_REMAINING=1
+									fi
+									echo -n "			Getting partition offset: "
+									partition_offset_txt=`sudo sgdisk -i=3 "${DEV_PATH}" | grep -E '^First sector:\s*[0-9]*\s*\(at\s[0-9.]*\s*[A-Za-z]*\)$'`
+									if [ ${?} -eq 0 ]; then
+										partition_offset_512=`echo "${partition_offset_txt}" | sed 's|^First sector:\s*\([0-9]*\)\s*(at\s*[0-9.]*\s[A-Za-z]*)$|\1|'`
+										printf "0x%x (512 sectors)\\n" ${partition_offset_512}
+									else
+										echo "Failed"
+										SKIP_REMAINING=1
+									fi
+								else
+									echo "No ISOLINUX installation"
+									SKIP_REMAINING=1
+								fi
+							else
+								echo "Wrong architecture"
+								SKIP_REMAINING=1
+							fi
+						else
+							echo "Couldn't find Release file"
+							SKIP_REMAINING=1
+						fi
+					else
+						echo "Not Debian installation ISO"
+						SKIP_REMAINING=1
+					fi
+				fi
 			fi
 			echo -n "		Unmounting ISO image: "
 			# Bug fix, the mount is being held open by other programs, GNOME???
