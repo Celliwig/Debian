@@ -824,7 +824,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 		exit 1
 	fi
 	DEV_SIZE_BYTES=`sudo blockdev --getsize64 ${DEV_PATH}`
-	DEV_SIZE_GIG=$((DEV_SIZE_BYTES/1073741824))
+	DEV_SIZE_GIG=$((${DEV_SIZE_BYTES}/1073741824))
 	if [ ${DEV_SIZE_GIG} -gt 4 ]; then
 		echo "	Detected: ${DEV_PATH} (${DEV_SIZE_GIG} GB)"
 	else
@@ -1076,8 +1076,35 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 								if [ -f "${PATH_ISO_MNT}/isolinux/isolinux.bin" ]; then
 									echo
 
+									#
+									# ISOLINUX hybrid MBR support patching
+									#
+									# First check that MBR supports hybrid booting by checking for '0x7078c0fb'
+									# signature in MBR image, if it does it needs patching to support the ISO
+									# partition.
+									#
+									# Registers EBX/ECX are used initially to represent the LBA offset of the
+									# partition containing the ISO image (EBX offset high/ECX offset low).
+									# Originally the registers are cleared using 2 XOR instructions which compile
+									# to "0x66,0x31,0xdb,0x66,0x31,0xc9". So convert the MBR image to hex stream
+									# using hexdump to be able to grep for the byte offset position of those
+									# instructions. Then those instructions are replaced using 'dd' with the
+									# instruction 'mov ecx, #<partition LBA offset>', which is also 6 bytes.
+									#
+									# EBX/ECX still need to be initialised (or at least EBX does) so find empty space
+									# before that to insert the XOR instructions into.
+									#
+									# Finally sanity check that the offset found earlier for 'isolinux.bin' matches
+									# the one found at offset 0x1b0 in the file.
+									#
+
 									isolinux_bin_offset_2048=0
 									isolinux_bin_offset_512=0
+									partition_offset_512=0
+									mbr_xor_offset=0
+									mbr_freesp_offset=0
+									mbr_freesp_size=0
+									mbr_freesp_need_bytes=6
 
 									echo -n "			Copying ISOLINUX MBR: "
 									err_msg=`sudo dd "if=/dev/disk/by-partlabel/${tmp_iso_filename}" "of=${DIR_TMP}${PATH_MBR_IMG}" bs=1 count=446 status=none 2>&1`
@@ -1087,25 +1114,73 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 										echo "${err_msg}"
 										SKIP_REMAINING=1
 									fi
-									echo -n "			Getting isolinux.bin offset: "
-									isolinux_bin_offset_txt=`isoinfo  -i "${tmp_iso_img}" -l |grep "ISOLINUX.BIN"`
+									echo -n "			Checking for ISOLINUX hybrid MBR: "
+									cat "${DIR_TMP}${PATH_MBR_IMG}" | hexdump -v -e '1/1 "/x%02x"' | grep --byte-offset --only-matching '/xfb/xc0/x78/x70' &>/dev/null
 									if [ ${?} -eq 0 ]; then
-										isolinux_bin_offset_2048=`echo "${isolinux_bin_offset_txt}" | sed 's|^[-]*\s*[0-9]*\s*[0-9]*\s*[0-9]*\s*[0-9]*\s*[A-Za-z]*\s*[0-9]*\s[0-9]*\s*\[\s*\([0-9]*\)\s*[0-9]*\]\s*ISOLINUX\.BIN;1|\1|'`
-										isolinux_bin_offset_512=$((isolinux_bin_offset_2048*2048))
-										isolinux_bin_offset_512=$((isolinux_bin_offset_512/512))
-										printf "0x%x (2048 sectors)/0x%x (512 sectors)\\n" ${isolinux_bin_offset_2048} ${isolinux_bin_offset_512}
+										echo "Hybrid"
 									else
-										echo "Failed to extract from ISO image"
+										echo "Non-Hybrid"
 										SKIP_REMAINING=1
 									fi
-									echo -n "			Getting partition offset: "
-									partition_offset_txt=`sudo sgdisk -i=3 "${DEV_PATH}" | grep -E '^First sector:\s*[0-9]*\s*\(at\s[0-9.]*\s*[A-Za-z]*\)$'`
-									if [ ${?} -eq 0 ]; then
-										partition_offset_512=`echo "${partition_offset_txt}" | sed 's|^First sector:\s*\([0-9]*\)\s*(at\s*[0-9.]*\s[A-Za-z]*)$|\1|'`
-										printf "0x%x (512 sectors)\\n" ${partition_offset_512}
-									else
-										echo "Failed"
-										SKIP_REMAINING=1
+									if [ ${SKIP_REMAINING} -eq 0 ]; then
+										echo -n "			Getting isolinux.bin offset: "
+										isolinux_bin_offset_txt=`isoinfo  -i "${tmp_iso_img}" -l | grep -E '^[-]*\s*[0-9]*\s*[0-9]*\s*[0-9]*\s*[0-9]*\s*[A-Za-z]*\s*[0-9]*\s[0-9]*\s*\[\s*[0-9]*\s*[0-9]*\]\s*ISOLINUX\.BIN;1\s*$'`
+										if [ ${?} -eq 0 ]; then
+											isolinux_bin_offset_2048=`echo "${isolinux_bin_offset_txt}" | sed 's|^[-]*\s*[0-9]*\s*[0-9]*\s*[0-9]*\s*[0-9]*\s*[A-Za-z]*\s*[0-9]*\s[0-9]*\s*\[\s*\([0-9]*\)\s*[0-9]*\]\s*ISOLINUX\.BIN;1\s*$|\1|'`
+											isolinux_bin_offset_512=$((${isolinux_bin_offset_2048}*2048))
+											isolinux_bin_offset_512=$((${isolinux_bin_offset_512}/512))
+											printf "0x%x (2048 sectors)/0x%x (512 sectors)\\n" ${isolinux_bin_offset_2048} ${isolinux_bin_offset_512}
+										else
+											echo "Failed to extract from ISO image"
+											SKIP_REMAINING=1
+										fi
+										echo -n "			Getting partition offset: "
+										partition_offset_txt=`sudo sgdisk -i=3 "${DEV_PATH}" | grep -E '^First sector:\s*[0-9]*\s*\(at\s[0-9.]*\s*[A-Za-z]*\)$'`
+										if [ ${?} -eq 0 ]; then
+											partition_offset_512=`echo "${partition_offset_txt}" | sed 's|^First sector:\s*\([0-9]*\)\s*(at\s*[0-9.]*\s[A-Za-z]*)$|\1|'`
+											printf "0x%x (512 sectors)\\n" ${partition_offset_512}
+										else
+											echo "Failed"
+											SKIP_REMAINING=1
+										fi
+										echo -n "			Getting MBR XOR (ebx/ecx) offset: "
+										mbr_xor_offset_txt=`cat "${DIR_TMP}${PATH_MBR_IMG}" | hexdump -v -e '1/1 "/x%02x"' |grep --byte-offset --only-matching '/x66/x31/xdb/x66/x31/xc9'`
+										if [ ${?} -eq 0 ]; then
+											mbr_xor_offset=`echo "${mbr_xor_offset_txt}" | sed 's|^\([0-9]*\):\(/x[0-9a-f]*\)*$|\1|'`
+											# Divide by four (4 chars to 1 byte)
+											mbr_xor_offset=$((${mbr_xor_offset}/4))
+											printf "%i = 0x%x bytes\\n" ${mbr_xor_offset} ${mbr_xor_offset}
+										else
+											echo "Failed"
+											SKIP_REMAINING=1
+										fi
+										if [ ${SKIP_REMAINING} -eq 0 ]; then
+											echo -n "			Looking for free space: "
+											# Scan for blocks of free space (0x00) before MBR XOR offset
+											for mbr_freesp_offset_txt in `head -c ${mbr_xor_offset} "${DIR_TMP}${PATH_MBR_IMG}" | hexdump -v -e '1/1 "/x%02x"' |grep -E --byte-offset --only-matching  '(/x00)*'|sort -nr`; do
+												mbr_freesp_offset=`echo ${mbr_freesp_offset_txt} | sed -E 's|^([0-9]*):([/x00]*)|\1|'`
+												mbr_freesp_size=`echo ${mbr_freesp_offset_txt} | sed -E 's|^([0-9]*):([/x00]*)|\2|'| tr -d "\n"| wc -c`
+												# Divide by four (4 chars to 1 byte)
+												mbr_freesp_offset=$((${mbr_freesp_offset}/4))
+												mbr_freesp_size=$((${mbr_freesp_size}/4))
+												# Looking for 6 or more bytes of free space
+												if [ ${mbr_freesp_size} -ge ${mbr_freesp_need_bytes} ]; then
+													break;
+												fi
+											done
+											if [ ${mbr_freesp_size} -ge ${mbr_freesp_need_bytes} ]; then
+												printf "%i bytes at offset 0x%x\\n" ${mbr_freesp_size} ${mbr_freesp_offset}
+												if [ ${mbr_freesp_size} -gt ${mbr_freesp_need_bytes} ]; then
+													echo -n "				Recalculating offset: "
+													mbr_freesp_offset=$((${mbr_freesp_offset}+${mbr_freesp_size}-${mbr_freesp_need_bytes}))
+													printf "0x%x\\n" ${mbr_freesp_offset}
+												fi
+											else
+												echo "Failed"
+												SKIP_REMAINING=1
+											fi
+										fi
+
 									fi
 								else
 									echo "No ISOLINUX installation"
