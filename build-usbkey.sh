@@ -33,11 +33,12 @@ declare -r TXT_NORMAL="\033[0m"
 # Associative arrays
 #############################
 declare -A LST_ARCH_CHK						# Architecture check array
-declare -A LST_ISO						# ISO image path array
+declare -A LST_ISO_CHK						# ISO image path check array
 declare -A LST_PKG						# Packages array
 # Index arrays
 #############################
 declare -a LST_ARCH						# Architecture array
+declare -a LST_ISO						# ISO image path array
 
 # Variables
 #############################
@@ -101,7 +102,7 @@ command_check () {
 	return 0
 }
 
-# Add architecture to list if not alreadyy present
+# Add architecture to list if not already present
 arch_add () {
 	arch="${1}"
 	if [ ! -v LST_ARCH_CHK[${arch}] ]; then
@@ -123,6 +124,15 @@ arch_check () {
 		;;
 	esac
 	return 1
+}
+
+# Add ISO image to list if not already present
+iso_list_add () {
+	iso_image_path="${1}"
+	if [ ! -v LST_ISO_CHK[${iso_image_path}] ]; then
+		LST_ISO_CHK[${iso_image_path}]=
+		LST_ISO+=( "${iso_image_path}" )
+	fi
 }
 
 # Sudo requests privileges, return priv status
@@ -527,7 +537,7 @@ while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 		PATH_INITRD="${OPTARG}"
 		;;
 	I)
-		LST_ISO["${OPTARG}"]=
+		iso_list_add "${OPTARG}"
 		;;
 	m)
 		arch_check "${OPTARG}"
@@ -923,7 +933,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 				for tmp_iso_img in `find "${download_path}" -iname *.iso`; do
 					iso_filename=`basename "${tmp_iso_img}"`
 					echo "				${iso_filename} - Added"
-					LST_ISO["${tmp_iso_img}"]=
+					iso_list_add "${tmp_iso_img}"
 				done
 			else
 				echo "Not found"
@@ -973,7 +983,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 								echo "Ignored (Base ISO)"
 							elif [ -f "${download_path}/${tmp_jigdo_stripped}.iso" ]; then
 								echo "Added"
-								LST_ISO["${download_path}/${tmp_jigdo_stripped}.iso"]=
+								iso_list_add "${download_path}/${tmp_jigdo_stripped}.iso"
 							else
 								echo "ISO image not found"
 								SKIP_REMAINING=1
@@ -996,7 +1006,9 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 	#############################
 	if [ ${#LST_ISO[@]} -gt 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 		echo -e "${TXT_UNDERLINE}Add specified ISO images:${TXT_NORMAL}"
-		for tmp_iso_img in ${!LST_ISO[@]}; do
+		for (( iso_idx=0; iso_idx<${#LST_ISO[@]}; iso_idx++ )); do
+			tmp_iso_img="${LST_ISO[${iso_idx}]}"
+
 			tmp_iso_filename=`basename "${tmp_iso_img}"`
 			echo -n "	Adding ${tmp_iso_filename}: "
 			err_msg=`device_add_iso_image "${DEV_PATH}" "${PARTITION_NUM}" "${tmp_iso_img}" "${tmp_iso_filename}"`
