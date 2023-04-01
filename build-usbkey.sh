@@ -33,6 +33,7 @@ declare -r TXT_NORMAL="\033[0m"
 # Associative arrays
 #############################
 declare -A LST_ARCH_CHK						# Architecture check array
+declare -A LST_ISO_ADDITIONAL					# Additional ISO image path array
 declare -A LST_ISO_CHK						# ISO image path check array
 declare -A LST_PKG						# Packages array
 # Index arrays
@@ -537,7 +538,7 @@ while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 		PATH_INITRD="${OPTARG}"
 		;;
 	I)
-		iso_list_add "${OPTARG}"
+		LST_ISO_ADDITIONAL["${OPTARG}"]=
 		;;
 	m)
 		arch_check "${OPTARG}"
@@ -991,6 +992,23 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 							fi
 						done
 					done
+				else
+					echo "Not found"
+					SKIP_REMAINING=1
+					break;
+				fi
+			done
+		fi
+
+		# Add additional ISO images
+		if [ ${#LST_ISO_ADDITIONAL[@]} -gt 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
+			echo "	Adding additional ISO images:"
+			for tmp_iso_img in ${!LST_ISO_ADDITIONAL[@]}; do
+				tmp_iso_filename=`basename "${tmp_iso_img}"`
+				echo -n "		${tmp_iso_filename}: "
+				if [ -f "${tmp_iso_img}" ]; then
+					echo "Added"
+					iso_list_add "${tmp_iso_img}"
 				else
 					echo "Not found"
 					SKIP_REMAINING=1
