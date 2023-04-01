@@ -8,6 +8,58 @@
 #												#
 #################################################################################################
 
+# Defines
+#############################
+# Hybrid MBR/GPT layout types
+declare -r HYBRID_LAYOUT_GRUB=1					# Use host's GRUB as a bootloader for the hybrid MBR/GPT layout
+declare -r HYBRID_LAYOUT_ISOLINUX=2				# Use patch ISOLINUX's MBR from an ISO image as bootloader
+# ISO source (Debian)
+declare -r ISOSRC_DEBIAN_URLBASE="https://cdimage.debian.org/debian-cd/###VERSION###/###ARCHITECTURE###/###TYPE###/"
+declare -r ISOSRC_DEBIAN_VER="current"
+declare -r ISOSRC_DEBIAN_TYPE_HTTPS="iso-dvd"
+declare -r ISOSRC_DEBIAN_TYPE_JIGDO="jigdo-dvd"
+declare -r ISOSRC_DEBIAN_REJECT=( "debian-update-" )
+# Paths
+declare -r PATH_DLOAD_HTTPS="/https"				# Path to store downloaded files (https)
+declare -r PATH_DLOAD_JIGDO="/jigdo"				# Path to store downloaded files (jigdo)
+declare -r PATH_EFI_EFIBOOT="/EFI/boot"				# Path to EFI GRUB binaries
+declare -r PATH_EFI_BOOTGRUB="/boot/grub"			# Path to GRUB resources
+declare -r PATH_EFI_HASHES="/hashes"				# Base directory of store for hashes/signatures
+declare -r PATH_JIGDO_CACHE="/jigdo-cache"			# Temporary directory for jigdo files
+# Pretty print
+declare -r TXT_UNDERLINE="\033[1m\033[4m"			# Used to pretty print output
+declare -r TXT_NORMAL="\033[0m"
+
+# Associative arrays
+#############################
+declare -A LST_ISO						# ISO image path array
+declare -A LST_ARCH_CHK						# Architecture check array
+# Index arrays
+#############################
+declare -a LST_ARCH						# Architecture array
+
+# Variables
+#############################
+DEV_PATH=							# USB device path
+DEV_LAYOUT_HYBRID=0						# Flag whether to create hybrid MBR/GPT layout or not
+DEV_LAYOUT_HYBRID_ARCH=						# If set contains the architecture of the ISO to use as source for isolinux boot
+DIR_PWD=`pwd`							# Current directory
+DIR_MNT="${DIR_PWD}/mnt"					# Directory to use for mount points
+DIR_MNT_EXISTS=0						# Flag whether mount directory was created or not
+DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
+DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
+DLOAD_ONLY=0							# When set, only download selected files
+DLOAD_DONE=0							# When set, skip downloading files
+LST_PKG=""							# Package list
+PARTITION_NUM=1							# Partition counter
+PATH_EFI_DEV=							# USB key EFI partition path
+PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
+PATH_GPG_KEYRNG=""						# Path to GPG keyring
+PATH_INITRD=							# Path to additional initrd image to include on ESP
+PATH_ISO_DEV=							# ISO image partition path
+PATH_ISO_MNT="${DIR_MNT}/iso"					# ISO image partition mount path
+SKIP_REMAINING=0						# If set, skip any remaining items
+
 # Functions
 #############################
 # Print usage
@@ -49,9 +101,18 @@ command_check () {
 	return 0
 }
 
+# Add architecture to list if not alreadyy present
+arch_add () {
+	arch="${1}"
+	if [ ! -v LST_ARCH_CHK[${arch}] ]; then
+		LST_ARCH_CHK[${arch}]=
+		LST_ARCH+=( "${arch}" )
+	fi
+}
+
 # Check architecture is valid
 arch_check () {
-	arch=${1}
+	arch="${1}"
 	case ${arch} in
 	i386| \
 	amd64| \
@@ -430,72 +491,6 @@ gpg_keyring_init () {
 	return 0
 }
 
-# Check for used commands
-#############################
-command_check blockdev						# Check for 'blockdev' command
-command_check dd						# Check for 'dd' command
-command_check gpg						# Check for 'gpg' command
-command_check isoinfo						# Check for 'isoinfo' command
-command_check jigdo-lite					# Check for 'jigdo-lite' command
-command_check lsb_release					# Check for 'lsb_release' command
-command_check lsblk						# Check for 'lsblk' command
-command_check mkfs.vfat						# Check for 'mkfs.vfat' command
-command_check partprobe						# Check for 'partprobe' command
-command_check sed						# Check for 'sed' command
-command_check sgdisk						# Check for 'sgdisk' command
-command_check sudo						# Check for 'sudo' command
-command_check wget						# Check for 'wget' command
-command_check zgrep						# Check for 'zgrep' command
-
-# Defines
-#############################
-# Hybrid MBR/GPT layout types
-declare -r HYBRID_LAYOUT_GRUB=1					# Use host's GRUB as a bootloader for the hybrid MBR/GPT layout
-declare -r HYBRID_LAYOUT_ISOLINUX=2				# Use patch ISOLINUX's MBR from an ISO image as bootloader
-# ISO source (Debian)
-declare -r ISOSRC_DEBIAN_URLBASE="https://cdimage.debian.org/debian-cd/###VERSION###/###ARCHITECTURE###/###TYPE###/"
-declare -r ISOSRC_DEBIAN_VER="current"
-declare -r ISOSRC_DEBIAN_TYPE_HTTPS="iso-dvd"
-declare -r ISOSRC_DEBIAN_TYPE_JIGDO="jigdo-dvd"
-declare -r ISOSRC_DEBIAN_REJECT=( "debian-update-" )
-# Paths
-declare -r PATH_DLOAD_HTTPS="/https"				# Path to store downloaded files (https)
-declate -r PATH_DLOAD_JIGDO="/jigdo"				# Path to store downloaded files (jigdo)
-declare -r PATH_EFI_EFIBOOT="/EFI/boot"				# Path to EFI GRUB binaries
-declare -r PATH_EFI_BOOTGRUB="/boot/grub"			# Path to GRUB resources
-declare -r PATH_EFI_HASHES="/hashes"				# Base directory of store for hashes/signatures
-declare -r PATH_JIGDO_CACHE="/jigdo-cache"			# Temporary directory for jigdo files
-# Pretty print
-declare -r TXT_UNDERLINE="\033[1m\033[4m"			# Used to pretty print output
-declare -r TXT_NORMAL="\033[0m"
-
-# Associative arrays
-#############################
-declare -A LST_ISO						# ISO image path array
-
-# Variables
-#############################
-DEV_PATH=							# USB device path
-DEV_LAYOUT_HYBRID=0						# Flag whether to create hybrid MBR/GPT layout or not
-DEV_LAYOUT_HYBRID_ARCH=						# If set contains the architecture of the ISO to use as source for isolinux boot
-DIR_PWD=`pwd`							# Current directory
-DIR_MNT="${DIR_PWD}/mnt"					# Directory to use for mount points
-DIR_MNT_EXISTS=0						# Flag whether mount directory was created or not
-DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
-DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
-DLOAD_ONLY=0							# When set, only download selected files
-DLOAD_DONE=0							# When set, skip downloading files
-LST_ARCH=""							# Architecture list
-LST_PKG=""							# Package list
-PARTITION_NUM=1							# Partition counter
-PATH_EFI_DEV=							# USB key EFI partition path
-PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
-PATH_GPG_KEYRNG=""						# Path to GPG keyring
-PATH_INITRD=							# Path to additional initrd image to include on ESP
-PATH_ISO_DEV=							# ISO image partition path
-PATH_ISO_MNT="${DIR_MNT}/iso"					# ISO image partition mount path
-SKIP_REMAINING=0						# If set, skip any remaining items
-
 # Parse arguments
 while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 	case ${arg} in
@@ -505,8 +500,7 @@ while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 			echo "Invalid architecture: ${OPTARG}"
 			exit
 		fi
-		if [ -n "${LST_ARCH}" ]; then LST_ARCH+=" "; fi
-		LST_ARCH+=${OPTARG}
+		arch_add "${OPTARG}"
 		;;
 	d)
 		DEV_PATH=${OPTARG}
@@ -561,6 +555,24 @@ while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 		;;
 	esac
 done
+
+# Check for used commands
+#############################
+command_check blockdev						# Check for 'blockdev' command
+command_check dd						# Check for 'dd' command
+command_check gpg						# Check for 'gpg' command
+command_check grub-install					# Check for 'grub-install' command
+command_check isoinfo						# Check for 'isoinfo' command
+command_check jigdo-lite					# Check for 'jigdo-lite' command
+command_check lsb_release					# Check for 'lsb_release' command
+command_check lsblk						# Check for 'lsblk' command
+command_check mkfs.vfat						# Check for 'mkfs.vfat' command
+command_check partprobe						# Check for 'partprobe' command
+command_check sed						# Check for 'sed' command
+command_check sgdisk						# Check for 'sgdisk' command
+command_check sudo						# Check for 'sudo' command
+command_check wget						# Check for 'wget' command
+command_check zgrep						# Check for 'zgrep' command
 
 ##########################################################
 # Main
@@ -617,9 +629,9 @@ echo
 ##########################################################
 if [ ${DLOAD_DONE} -eq 0 ]; then
 	echo -e "${TXT_UNDERLINE}Downloading files:${TXT_NORMAL}"
-	if [ -n "${LST_ARCH}" ]; then
+	if [ ${#LST_ARCH[@]} -gt 0 ]; then
 		echo "	Downloading base ISOs using HTTPS:"
-		for tmp_arch in ${LST_ARCH}; do
+		for tmp_arch in ${LST_ARCH[@]}; do
 			download_path="${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}"
 			download_url=`echo "${ISOSRC_DEBIAN_URLBASE}" | sed -e "s|###VERSION###|${ISOSRC_DEBIAN_VER}|" -e "s|###ARCHITECTURE###|${tmp_arch}|" -e "s|###TYPE###|${ISOSRC_DEBIAN_TYPE_HTTPS}|"`
 			echo "		Architecture: ${tmp_arch}"
@@ -666,7 +678,7 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 
 			if [ ${SKIP_REMAINING} -eq 0 ]; then
 				echo "	Downloading additional ISOs using jigdo:"
-				for tmp_arch in ${LST_ARCH}; do
+				for tmp_arch in ${LST_ARCH[@]}; do
 					# Clear jigdo cache directory
 					rm -rf "${jigdo_cachedir}"/* &>/dev/null
 
@@ -879,7 +891,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 		echo -e "${TXT_UNDERLINE}Processing downloaded files:${TXT_NORMAL}"
 
 		echo "	Checking for base files:"
-		for tmp_arch in ${LST_ARCH}; do
+		for tmp_arch in ${LST_ARCH[@]}; do
 			download_path="${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}"
 
 			echo -n "		${tmp_arch}: "
@@ -924,7 +936,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 		# Check if any packages listed
 		if [ -n "${LST_PKG}" ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 			echo "	Checking for additional ISOs:"
-			for tmp_arch in ${LST_ARCH}; do
+			for tmp_arch in ${LST_ARCH[@]}; do
 				download_path="${DIR_TMP}${PATH_DLOAD_JIGDO}/${tmp_arch}"
 
 				echo -n "		${tmp_arch}: "
@@ -1049,6 +1061,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 
 	# Clean up
 	##########################################################
+	echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
 	# Is this hybrid layout
 	#############################
 	if [ ${DEV_LAYOUT_HYBRID} -gt 0 ]; then
@@ -1063,7 +1076,6 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 #		if [ ${DEV_LAYOUT_HYBRID} -eq ${HYBRID_LAYOUT_ISOLINUX} ]; then
 #		fi
 	fi
-	echo -e "${TXT_UNDERLINE}Clean Up:${TXT_NORMAL}"
 	echo -n "	Unmounting EFI System partition: "
 	sudo umount "${PATH_EFI_MNT}" &>/dev/null
 	okay_failedexit $?
