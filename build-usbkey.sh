@@ -32,8 +32,9 @@ declare -r TXT_NORMAL="\033[0m"
 
 # Associative arrays
 #############################
-declare -A LST_ISO						# ISO image path array
 declare -A LST_ARCH_CHK						# Architecture check array
+declare -A LST_ISO						# ISO image path array
+declare -A LST_PKG						# Packages array
 # Index arrays
 #############################
 declare -a LST_ARCH						# Architecture array
@@ -50,7 +51,6 @@ DIR_TMP="${DIR_PWD}/tmp"					# Directory to use for temporary storage
 DIR_TMP_EXISTS=0						# Flag whether tmp directory was created or not
 DLOAD_ONLY=0							# When set, only download selected files
 DLOAD_DONE=0							# When set, skip downloading files
-LST_PKG=""							# Package list
 PARTITION_NUM=1							# Partition counter
 PATH_EFI_DEV=							# USB key EFI partition path
 PATH_EFI_MNT="${DIR_MNT}/efi"					# USB key EFI partition mount path
@@ -495,7 +495,7 @@ gpg_keyring_init () {
 while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 	case ${arg} in
 	a)
-		arch_check ${OPTARG}
+		arch_check "${OPTARG}"
 		if [ ${?} -ne 0 ]; then
 			echo "Invalid architecture: ${OPTARG}"
 			exit
@@ -503,7 +503,7 @@ while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 		arch_add "${OPTARG}"
 		;;
 	d)
-		DEV_PATH=${OPTARG}
+		DEV_PATH="${OPTARG}"
 		;;
 	D)
 		case ${OPTARG} in
@@ -543,11 +543,10 @@ while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 		DEV_LAYOUT_HYBRID=${HYBRID_LAYOUT_GRUB}
 		;;
 	p)
-		if [ -n "${LST_PKG}" ]; then LST_PKG+=" "; fi
-		LST_PKG+=${OPTARG}
+		LST_PKG["${OPTARG}"]=
 		;;
 	t)
-		DIR_TMP=${OPTARG}
+		DIR_TMP="${OPTARG}"
 		;;
 	*)
 		echo "$0: Unknown argument"
@@ -658,7 +657,7 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 		done
 
 		# Check if any packages listed
-		if [ -n "${LST_PKG}" ] && [ ${SKIP_REMAINING} -eq 0 ]; then
+		if [ ${#LST_PKG[@]} -gt 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 			# Directory to cache downloaded packages
 			jigdo_cachedir="${DIR_TMP}${PATH_JIGDO_CACHE}"
 
@@ -717,7 +716,7 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 					fi
 
 					echo "			Scanning for packages: "
-					for tmp_pkg in ${LST_PKG}; do
+					for tmp_pkg in ${!LST_PKG[@]}; do
 						echo "				${tmp_pkg}:"
 						# Scan jigdo files for package name
 						for tmp_jigdo in `zgrep -l "/${tmp_pkg}_" "${download_path}"/*.jigdo`; do
@@ -934,7 +933,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 		done
 
 		# Check if any packages listed
-		if [ -n "${LST_PKG}" ] && [ ${SKIP_REMAINING} -eq 0 ]; then
+		if [ ${#LST_PKG[@]} -gt 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 			echo "	Checking for additional ISOs:"
 			for tmp_arch in ${LST_ARCH[@]}; do
 				download_path="${DIR_TMP}${PATH_DLOAD_JIGDO}/${tmp_arch}"
@@ -956,7 +955,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 						break;
 					fi
 					echo "			Scanning for packages: "
-					for tmp_pkg in ${LST_PKG}; do
+					for tmp_pkg in ${!LST_PKG[@]}; do
 						echo "				${tmp_pkg}:"
 						# Scan jigdo files for package name
 						for tmp_jigdo in `zgrep -l "/${tmp_pkg}_" "${download_path}"/*.jigdo`; do
