@@ -1306,8 +1306,11 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 			sudo grub-install --target i386-pc --boot-directory="${PATH_EFI_MNT}/boot" "${DEV_PATH}" &>/dev/null
 			okay_failedexit $?
 		fi
-#		if [ ${DEV_LAYOUT_HYBRID} -eq ${HYBRID_LAYOUT_ISOLINUX} ]; then
-#		fi
+		if [ ${DEV_LAYOUT_HYBRID} -eq ${HYBRID_LAYOUT_ISOLINUX} ]; then
+			echo -n "	Creating hybrid layout: "
+			sudo sgdisk --hybrid=1:2:3 "${DEV_PATH}" &>/dev/null
+			okay_failedexit $?
+		fi
 	fi
 	echo -n "	Unmounting EFI System partition: "
 	sudo umount "${PATH_EFI_MNT}" &>/dev/null
