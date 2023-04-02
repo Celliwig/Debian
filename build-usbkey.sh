@@ -1134,25 +1134,41 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 											echo "Failed to extract from ISO image"
 											SKIP_REMAINING=1
 										fi
-										echo -n "			Getting partition offset: "
-										partition_offset_txt=`sudo sgdisk -i=3 "${DEV_PATH}" | grep -E '^First sector:\s*[0-9]*\s*\(at\s[0-9.]*\s*[A-Za-z]*\)$'`
-										if [ ${?} -eq 0 ]; then
-											partition_offset_512=`echo "${partition_offset_txt}" | sed 's|^First sector:\s*\([0-9]*\)\s*(at\s*[0-9.]*\s[A-Za-z]*)$|\1|'`
-											printf "0x%x (512 sectors)\\n" ${partition_offset_512}
-										else
-											echo "Failed"
-											SKIP_REMAINING=1
+										if [ ${SKIP_REMAINING} -eq 0 ]; then
+											echo -n "			Checking isolinux.bin pointer in MBR: "
+											isolinux_bin_offset_512_hex=`printf "%08x" ${isolinux_bin_offset_512}`
+											hex_match_str="^/x${isolinux_bin_offset_512_hex:6:2}/x${isolinux_bin_offset_512_hex:4:2}/x${isolinux_bin_offset_512_hex:2:2}/x${isolinux_bin_offset_512_hex:0:2}$"
+											dd if=tmp/mbr.img bs=1 count=4 skip=432 status=none | hexdump -v -e '1/1 "/x%02x"' | grep -E "${hex_match_str}" &>/dev/null
+											if [ ${?} -eq 0 ]; then
+												echo "Valid"
+											else
+												echo "Invalid"
+												SKIP_REMAINING=1
+											fi
 										fi
-										echo -n "			Getting MBR XOR (ebx/ecx) offset: "
-										mbr_xor_offset_txt=`cat "${DIR_TMP}${PATH_MBR_IMG}" | hexdump -v -e '1/1 "/x%02x"' |grep --byte-offset --only-matching '/x66/x31/xdb/x66/x31/xc9'`
-										if [ ${?} -eq 0 ]; then
-											mbr_xor_offset=`echo "${mbr_xor_offset_txt}" | sed 's|^\([0-9]*\):\(/x[0-9a-f]*\)*$|\1|'`
-											# Divide by four (4 chars to 1 byte)
-											mbr_xor_offset=$((${mbr_xor_offset}/4))
-											printf "%i = 0x%x bytes\\n" ${mbr_xor_offset} ${mbr_xor_offset}
-										else
-											echo "Failed"
-											SKIP_REMAINING=1
+										if [ ${SKIP_REMAINING} -eq 0 ]; then
+											echo -n "			Getting partition offset: "
+											partition_offset_txt=`sudo sgdisk -i=3 "${DEV_PATH}" | grep -E '^First sector:\s*[0-9]*\s*\(at\s[0-9.]*\s*[A-Za-z]*\)$'`
+											if [ ${?} -eq 0 ]; then
+												partition_offset_512=`echo "${partition_offset_txt}" | sed 's|^First sector:\s*\([0-9]*\)\s*(at\s*[0-9.]*\s[A-Za-z]*)$|\1|'`
+												printf "0x%x (512 sectors)\\n" ${partition_offset_512}
+											else
+												echo "Failed"
+												SKIP_REMAINING=1
+											fi
+										fi
+										if [ ${SKIP_REMAINING} -eq 0 ]; then
+											echo -n "			Getting MBR XOR (ebx/ecx) offset: "
+											mbr_xor_offset_txt=`cat "${DIR_TMP}${PATH_MBR_IMG}" | hexdump -v -e '1/1 "/x%02x"' |grep --byte-offset --only-matching '/x66/x31/xdb/x66/x31/xc9'`
+											if [ ${?} -eq 0 ]; then
+												mbr_xor_offset=`echo "${mbr_xor_offset_txt}" | sed 's|^\([0-9]*\):\(/x[0-9a-f]*\)*$|\1|'`
+												# Divide by four (4 chars to 1 byte)
+												mbr_xor_offset=$((${mbr_xor_offset}/4))
+												printf "%i = 0x%x bytes\\n" ${mbr_xor_offset} ${mbr_xor_offset}
+											else
+												echo "Failed"
+												SKIP_REMAINING=1
+											fi
 										fi
 										if [ ${SKIP_REMAINING} -eq 0 ]; then
 											echo -n "			Looking for free space: "
