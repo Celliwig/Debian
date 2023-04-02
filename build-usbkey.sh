@@ -74,6 +74,7 @@ usage () {
 	echo "	-a <architecture>	Add architecture to download"
 	echo "	-d <device path>	Device path of USB key"
 	echo "	-D <only|done>		Either only download files, or assume done already"
+	echo "	-G <GPG keyring path>	Path to GPG keyring to use"
 	echo "	-i <initrd path>	Path to additional initrd image to copy to ESP"
 	echo "	-I <ISO image path>	Path to ISO image to add"
 	echo "	-M			Create hybrid MBR/GPT partition layout and install BIOS bootloader"
@@ -451,10 +452,16 @@ verify_files_copy () {
 # Initialise GPG keyring (if needed)
 # Returns path to temporary GPG keyring (if created)
 gpg_keyring_init () {
-	tmp_path="${1}"
-	keyring_path="${tmp_path}/keyring.gpg"
+	keyring_path="${1}"
 	have_keys=0
 	retval_txt=""
+
+	# If keyring path not defined, use temp
+	if [ -z "${keyring_path}" ]; then
+		keyring_path="${DIR_TMP}/keyring.gpg"
+		# If using temp key, delete it
+		rm -f "${keyring_path}"
+	fi
 
 	## Check distribution name, as keys
 	## should already be available in Debian
@@ -504,7 +511,7 @@ gpg_keyring_init () {
 }
 
 # Parse arguments
-while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
+while getopts ":hMa:d:D:G:i:I:m:p:t:" arg; do
 	case ${arg} in
 	a)
 		arch_check "${OPTARG}"
@@ -515,7 +522,7 @@ while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 		arch_add "${OPTARG}"
 		;;
 	d)
-		DEV_PATH="${OPTARG}"
+		DEV_PATH=`realpath "${OPTARG}"`
 		;;
 	D)
 		case ${OPTARG} in
@@ -531,12 +538,15 @@ while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 			;;
 		esac
 		;;
+	G)
+		PATH_GPG_KEYRNG=`realpath "${OPTARG}"`
+		;;
 	h)
 		usage
 		exit 0
 		;;
 	i)
-		PATH_INITRD="${OPTARG}"
+		PATH_INITRD=`realpath "${OPTARG}"`
 		;;
 	I)
 		LST_ISO_ADDITIONAL["${OPTARG}"]=
@@ -558,7 +568,7 @@ while getopts ":hMa:d:D:i:I:m:p:t:" arg; do
 		LST_PKG["${OPTARG}"]=
 		;;
 	t)
-		DIR_TMP="${OPTARG}"
+		DIR_TMP=`realpath "${OPTARG}"`
 		;;
 	*)
 		echo "$0: Unknown argument"
@@ -623,7 +633,7 @@ echo
 ##########################################################
 echo -e "${TXT_UNDERLINE}GPG keyring:${TXT_NORMAL}"
 echo -n "	Initialising: "
-PATH_GPG_KEYRNG=`gpg_keyring_init "${DIR_TMP}"`
+PATH_GPG_KEYRNG=`gpg_keyring_init "${PATH_GPG_KEYRNG}"`
 if [ ${?} -eq 0 ]; then
 	if [ -n "${PATH_GPG_KEYRNG}" ]; then
 		echo "Using .${PATH_GPG_KEYRNG#${DIR_PWD}}"
