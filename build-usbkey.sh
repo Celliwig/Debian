@@ -1236,7 +1236,17 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 												SKIP_REMAINING=1
 											fi
 										fi
-
+										if [ ${SKIP_REMAINING} -eq 0 ]; then
+											echo -n "			Writing MBR to ${DEV_PATH}: "
+											sudo dd "if=${DIR_TMP}${PATH_MBR_IMG}" "of=${DEV_PATH}" status=none &>/dev/null
+											if [ ${?} -eq 0 ]; then
+												echo "Done"
+											else
+												echo "Failed"
+												SKIP_REMAINING=1
+											fi
+											sudo sync
+										fi
 									fi
 								else
 									echo "No ISOLINUX installation"
