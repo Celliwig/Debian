@@ -1138,7 +1138,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 											echo -n "			Checking isolinux.bin pointer in MBR: "
 											isolinux_bin_offset_512_hex=`printf "%08x" ${isolinux_bin_offset_512}`
 											hex_match_str="^/x${isolinux_bin_offset_512_hex:6:2}/x${isolinux_bin_offset_512_hex:4:2}/x${isolinux_bin_offset_512_hex:2:2}/x${isolinux_bin_offset_512_hex:0:2}$"
-											dd if=tmp/mbr.img bs=1 count=4 skip=432 status=none | hexdump -v -e '1/1 "/x%02x"' | grep -E "${hex_match_str}" &>/dev/null
+											dd "if=${DIR_TMP}${PATH_MBR_IMG}" bs=1 count=4 skip=432 status=none | hexdump -v -e '1/1 "/x%02x"' | grep -E "${hex_match_str}" &>/dev/null
 											if [ ${?} -eq 0 ]; then
 												echo "Valid"
 											else
@@ -1193,6 +1193,46 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 												fi
 											else
 												echo "Failed"
+												SKIP_REMAINING=1
+											fi
+										fi
+										if [ ${SKIP_REMAINING} -eq 0 ]; then
+											echo -n "			Patching MBR - Setting partition address: "
+											# Check partition LBA offset look sensible (<0x100000000 we're only setting ECX)
+											if [ ${partition_offset_512} -gt 0 ] || [ ${partition_offset_512} -lt 4294967296 ]; then
+												# Check MBR XOR offset look sensible(ish), numbers are arbitary
+												if [ ${mbr_xor_offset} -gt 0 ] || [ ${mbr_xor_offset} -lt 100 ]; then
+													partition_offset_512_hex=`printf "%08x" ${partition_offset_512}`
+													hex_instruct_str="\x66\xb9\x${partition_offset_512_hex:0:2}\x${partition_offset_512_hex:2:2}\x${partition_offset_512_hex:4:2}\x${partition_offset_512_hex:6:2}"
+													printf "${hex_instruct_str}" | sudo dd "of=${DIR_TMP}${PATH_MBR_IMG}" bs=1 count=6 seek=${mbr_xor_offset} conv=notrunc status=none &>/dev/null
+													if [ ${?} -eq 0 ]; then
+														echo "Done"
+													else
+														echo "Failed"
+														SKIP_REMAINING=1
+													fi
+												else
+													echo "Invalid MBR offset"
+													SKIP_REMAINING=1
+												fi
+											else
+												echo "Invalid partition LBA offset"
+												SKIP_REMAINING=1
+											fi
+										fi
+										if [ ${SKIP_REMAINING} -eq 0 ]; then
+											echo -n "			Patching MBR - Adding XOR instructions: "
+											# Check MBR free space offset look sensible(ish), numbers are arbitary
+											if [ ${mbr_freesp_offset} -gt 0 ] || [ ${mbr_freesp_offset} -lt 100 ]; then
+												printf '\x66\x31\xdb\x66\x31\xc9' | sudo dd "of=${DIR_TMP}${PATH_MBR_IMG}" bs=1 count=6 seek=${mbr_freesp_offset} conv=notrunc status=none &>/dev/null
+												if [ ${?} -eq 0 ]; then
+													echo "Done"
+												else
+													echo "Failed"
+													SKIP_REMAINING=1
+												fi
+											else
+												echo "Invalid MBR offset"
 												SKIP_REMAINING=1
 											fi
 										fi
