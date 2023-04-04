@@ -726,17 +726,18 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 						SKIP_REMAINING=1
 						break;
 					fi
-					echo -n "			Validating downloads: "
-					# Throw error
-					ls monkeybutt &>/dev/null
-					if [ ${?} -eq 0 ]; then
-						echo "Okay"
-					else
-						echo "Failed: ${err_msg}"
+					echo "                  Verifying hashes:"
+					verify_hash_files "${download_path}" "${PATH_GPG_KEYRNG}" 4
+					if [ ${?} -ne 0 ]; then
 						SKIP_REMAINING=1
 						break;
 					fi
-
+					echo "                  Verifying jigdo files:"
+					verify_iso_images "${download_path}" 4
+					if [ ${?} -ne 0 ]; then
+						SKIP_REMAINING=1
+						break;
+					fi
 					echo "			Scanning for packages: "
 					for tmp_pkg in ${!LST_PKG[@]}; do
 						echo "				${tmp_pkg}:"
