@@ -366,6 +366,7 @@ verify_hash_files () {
 verify_iso_images () {
 	source_path="${1}"
 	padding="${2}"
+	sudo_update=${3}
 	retval=1
 
 	# Create text padding
@@ -384,7 +385,7 @@ verify_iso_images () {
 	for tmp_hashfile in `ls SHA*SUMS`; do
 		# Extend credentials timestamp
 		# As this may take some time
-		sudo_priv_check
+		if [ ${sudo_update} -eq 1 ]; then sudo_priv_check fi
 
 		case "${tmp_hashfile}" in
 		SHA256SUMS)
@@ -733,7 +734,7 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 						break;
 					fi
 					echo "                  Verifying jigdo files:"
-					verify_iso_images "${download_path}" 4
+					verify_iso_images "${download_path}" 4 0
 					if [ ${?} -ne 0 ]; then
 						SKIP_REMAINING=1
 						break;
@@ -927,7 +928,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 					break;
 				fi
 				echo "			Verifying images:"
-				verify_iso_images "${download_path}" 4
+				verify_iso_images "${download_path}" 4 1
 				if [ ${?} -ne 0 ]; then
 					SKIP_REMAINING=1
 					break;
@@ -972,7 +973,7 @@ if [ ${DLOAD_ONLY} -eq 0 ] && [ ${SKIP_REMAINING} -eq 0 ]; then
 						break;
 					fi
 					echo "			Verifying images:"
-					verify_iso_images "${download_path}" 4
+					verify_iso_images "${download_path}" 4 1
 					if [ ${?} -ne 0 ]; then
 						SKIP_REMAINING=1
 						break;
