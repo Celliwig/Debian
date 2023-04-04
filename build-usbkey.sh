@@ -385,7 +385,7 @@ verify_iso_images () {
 	for tmp_hashfile in `ls SHA*SUMS`; do
 		# Extend credentials timestamp
 		# As this may take some time
-		if [ ${sudo_update} -eq 1 ]; then sudo_priv_check fi
+		if [ ${sudo_update} -eq 1 ]; then sudo_priv_check; fi
 
 		case "${tmp_hashfile}" in
 		SHA256SUMS)
@@ -727,13 +727,13 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 						SKIP_REMAINING=1
 						break;
 					fi
-					echo "                  Verifying hashes:"
+					echo "				Verifying hashes:"
 					verify_hash_files "${download_path}" "${PATH_GPG_KEYRNG}" 4
 					if [ ${?} -ne 0 ]; then
 						SKIP_REMAINING=1
 						break;
 					fi
-					echo "                  Verifying jigdo files:"
+					echo "				Verifying jigdo files:"
 					verify_iso_images "${download_path}" 4 0
 					if [ ${?} -ne 0 ]; then
 						SKIP_REMAINING=1
@@ -746,6 +746,13 @@ if [ ${DLOAD_DONE} -eq 0 ]; then
 						for tmp_jigdo in `zgrep -l "/${tmp_pkg}_" "${download_path}"/*.jigdo`; do
 							tmp_jigdo_stripped=`basename "${tmp_jigdo}" ".jigdo"`
 							echo -n "					${tmp_jigdo_stripped} - "
+							# Check whether to ignore ISO image
+							for tmp_reject in ${ISOSRC_DEBIAN_REJECT}; do
+								if [[ "${tmp_jigdo_stripped}" == ${tmp_reject}* ]]; then
+									echo "Rejected"
+									continue 2;
+								fi
+							done
 							# Check if already downloaded
 							if [ -f "${DIR_TMP}${PATH_DLOAD_HTTPS}/${tmp_arch}/${tmp_jigdo_stripped}.iso" ]; then
 								echo "Exists"
