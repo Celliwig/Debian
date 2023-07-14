@@ -1,0 +1,49 @@
+#!/bin/bash -e
+#
+# summary of how this script can be called:
+#        * <new-preinst> install
+#        * <new-preinst> install <old-version>
+#        * <new-preinst> upgrade <old-version>
+#        * <old-preinst> abort-upgrade <new-version>
+#
+
+. /usr/share/debconf/confmodule
+
+case "$1" in
+	install)
+		if db_get kiosk-user/username; then
+			KIOSK_USER="$RET"
+
+			# Create kiosk group using user name,
+			# if it doesn't already exist
+			if ! getent group "${KIOSK_USER}" >/dev/null; then
+				addgroup --system "${KIOSK_USER}"
+				db_set kiosk-user/group_delete true
+			else
+				db_set kiosk-user/group_delete false
+			fi
+
+			# Create kiosk user,
+			# if it doesn't already exist
+			if ! getent passwd "${KIOSK_USER}" >/dev/null; then
+				adduser --system --ingroup "${KIOSK_USER}" --disabled-password "${KIOSK_USER}"
+				usermod -c "Kiosk User" "${KIOSK_USER}"
+				db_set kiosk-user/user_delete true
+			else
+				db_set kiosk-user/user_delete false
+			fi
+		else
+			echo "preinst: no kiosk user set \`$1'" >&2
+			exit 1
+		fi
+		;;
+	upgrade|abort-upgrade)
+		echo "preinst: no-op"
+		;;
+	*)
+		echo "preinst: called with unknown argument \`$1'" >&2
+		exit 1
+		;;
+esac
+
+exit 0

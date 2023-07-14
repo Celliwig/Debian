@@ -48,3 +48,13 @@ Template: kiosk-user/use_cursor
 Type: boolean
 Default: false
 Description: for internal use
+
+Template: kiosk-user/user_delete
+Type: boolean
+Default: false
+Description: for internal use
+
+Template: kiosk-user/group_delete
+Type: boolean
+Default: false
+Description: for internal use

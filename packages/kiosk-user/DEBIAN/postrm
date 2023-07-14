@@ -3,6 +3,35 @@ set -e
 
 . /usr/share/debconf/confmodule
 
+# Remove user/group
+if [ "$1" = purge ]; then
+	# Check for kiosk user
+	if db_get kiosk-user/username; then
+		KIOSK_USER="$RET"
+
+		# Check whether to delete user
+		if db_get kiosk-user/user_delete && [ "${RET}" = true ]; then
+			if getent passwd "${KIOSK_USER}" >/dev/null; then
+				if [ -x /usr/sbin/deluser ]; then
+					deluser --system "${KIOSK_USER}" ||echo " Could not remove ${KIOSK_USER} user"
+				fi
+			fi
+		fi
+
+		# Check whether to delete group
+		if db_get kiosk-user/group_delete && [ "${RET}" = true ]; then
+			if getent group "${KIOSK_USER}" >/dev/null; then
+				if [ -x /usr/sbin/delgroup ]; then
+					delgroup --system "${KIOSK_USER}" || echo "Could not remove ${KIOSK_USER} group"
+				fi
+			fi
+		fi
+	else
+		echo "postrm: no kiosk user set \`$1'" >&2
+		exit 1
+	fi
+fi
+
 # Remove package from debconf
 if [ "$1" = purge ]; then
 	db_purge
