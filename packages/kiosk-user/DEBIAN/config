@@ -46,27 +46,28 @@ kiosk_add_option() {
 CONFIG_TYPE="${1}"
 
 # Get name of user to run application as
+# Only on installation
 if [ "${CONFIG_TYPE}" = "configure" ]; then
 	username_okay=0
 	while [ "${username_okay}" -eq 0 ]; do
 		# Get username
-		db_set kiosk-user/username kiosk || true
-		db_input high kiosk-user/username || true
-		db_go || true
+		db_set kiosk-user/username kiosk
+		db_input high kiosk-user/username
+		db_go
 
 		if db_get kiosk-user/username; then
 			check_username "$RET"
 			if [ ${?} -eq 0 ]; then
 				username_okay=1
 			else
-				db_input low kiosk-user/username_error || [ "$?" = "30" ]
+				db_input low kiosk-user/username_error
 				db_go
-				db_fset kiosk-user/username seen false || true
+				db_fset kiosk-user/username seen false
 			fi
 		else
-			db_input low kiosk-user/username_error || [ "$?" = "30" ]
+			db_input low kiosk-user/username_error
 			db_go
-			db_fset kiosk-user/username seen false || true
+			db_fset kiosk-user/username seen false
 		fi
 	done
 fi
@@ -75,28 +76,28 @@ fi
 execpath_okay=0
 while [ "${execpath_okay}" -eq 0 ]; do
 	# Get path to executable
-	db_input high kiosk-user/execpath || true
-	db_go || true
+	db_input high kiosk-user/execpath
+	db_go
 
 	if db_get kiosk-user/execpath; then
 		check_execpath "$RET"
 		if [ ${?} -eq 0 ]; then
 			execpath_okay=1
 		else
-			db_input low kiosk-user/execpath_error || [ "$?" = "30" ]
+			db_input low kiosk-user/execpath_error
 			db_go
-			db_fset kiosk-user/execpath seen false || true
+			db_fset kiosk-user/execpath seen false
 		fi
 	else
-		db_input low kiosk-user/execpath_error || [ "$?" = "30" ]
+		db_input low kiosk-user/execpath_error
 		db_go
-		db_fset kiosk-user/execpath seen false || true
+		db_fset kiosk-user/execpath seen false
 	fi
 done
 
 # Get the arguents to pass to the application
-db_input high kiosk-user/execargs || true
-db_go || true
+db_input high kiosk-user/execargs
+db_go
 
 # Variable to pass to db_input
 KIOSK_OPTIONS=""
@@ -114,7 +115,38 @@ kiosk_add_option "${OPT_HIDE_CURSOR}" 1
 kiosk_add_option "${OPT_USE_CURSOR}" 0
 
 db_subst kiosk-user/options options "$KIOSK_OPTIONS"
-db_set kiosk-user/options "$KIOSK_SELECTED_OPTIONS"
-db_input medium kiosk-user/options || true
-db_go || true
+# Onlu set options on installation
+if [ "${CONFIG_TYPE}" = "configure" ]; then
+	db_set kiosk-user/options "$KIOSK_SELECTED_OPTIONS"
+fi
+db_input medium kiosk-user/options
+db_go
 
+if db_get kiosk-user/options; then
+	kiosk_options="$RET"
+
+	# Disable titlebar
+	if expr "${kiosk_options}" ".*${OPT_DISABLE_TITLEBAR}.*" >/dev/null 2>&1; then
+		db_set kiosk-user/disable_titlebar true
+	else
+		db_set kiosk-user/disable_titlebar false
+	fi
+	# Disable video blanking
+	if expr "${kiosk_options}" ".*${OPT_DISABLE_VIDEO}.*" >/dev/null 2>&1; then
+		db_set kiosk-user/disable_blanking true
+	else
+		db_set kiosk-user/disable_blanking false
+	fi
+	# Hide cursor
+	if expr "${kiosk_options}" ".*${OPT_HIDE_CURSOR}.*" >/dev/null 2>&1; then
+		db_set kiosk-user/hide_cursor true
+	else
+		db_set kiosk-user/hide_cursor false
+	fi
+	# Use cursor
+	if expr "${kiosk_options}" ".*${OPT_USE_CURSOR}.*" >/dev/null 2>&1; then
+		db_set kiosk-user/use_cursor true
+	else
+		db_set kiosk-user/use_cursor false
+	fi
+fi
