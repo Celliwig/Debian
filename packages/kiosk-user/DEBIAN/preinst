@@ -17,7 +17,7 @@ case "$1" in
 			# Create kiosk group using user name,
 			# if it doesn't already exist
 			if ! getent group "${KIOSK_USER}" >/dev/null; then
-				addgroup --system "${KIOSK_USER}"
+				addgroup "${KIOSK_USER}"
 				db_set kiosk-user/group_delete true
 			else
 				db_set kiosk-user/group_delete false
@@ -26,7 +26,7 @@ case "$1" in
 			# Create kiosk user,
 			# if it doesn't already exist
 			if ! getent passwd "${KIOSK_USER}" >/dev/null; then
-				adduser --system --ingroup "${KIOSK_USER}" --disabled-password "${KIOSK_USER}"
+				adduser --ingroup "${KIOSK_USER}" --gecos "" --disabled-password "${KIOSK_USER}"
 				usermod -c "Kiosk User" "${KIOSK_USER}"
 				db_set kiosk-user/user_delete true
 			else

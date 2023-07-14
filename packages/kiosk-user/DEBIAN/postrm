@@ -13,7 +13,7 @@ if [ "$1" = purge ]; then
 		if db_get kiosk-user/user_delete && [ "${RET}" = true ]; then
 			if getent passwd "${KIOSK_USER}" >/dev/null; then
 				if [ -x /usr/sbin/deluser ]; then
-					deluser --system "${KIOSK_USER}" ||echo " Could not remove ${KIOSK_USER} user"
+					deluser "${KIOSK_USER}" ||echo " Could not remove ${KIOSK_USER} user"
 				fi
 			fi
 		fi
@@ -22,7 +22,7 @@ if [ "$1" = purge ]; then
 		if db_get kiosk-user/group_delete && [ "${RET}" = true ]; then
 			if getent group "${KIOSK_USER}" >/dev/null; then
 				if [ -x /usr/sbin/delgroup ]; then
-					delgroup --system "${KIOSK_USER}" || echo "Could not remove ${KIOSK_USER} group"
+					delgroup "${KIOSK_USER}" || echo "Could not remove ${KIOSK_USER} group"
 				fi
 			fi
 		fi
