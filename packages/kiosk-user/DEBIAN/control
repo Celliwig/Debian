@@ -1,0 +1,11 @@
+Package: kiosk-user
+Version: 0.1
+Architecture: all
+Maintainer: Celliwig <celliwig@nym.hush.com>
+Installed-Size: 112
+Pre-Depends: debconf
+Depends: matchbox-window-manager, x11-xserver-utils
+Section: embedded
+Priority: optional
+Description: Kiosk User
+ Creates a user that will login automatically and starts matchbox-window-manager to run a single application.

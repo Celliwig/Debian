@@ -1,0 +1,89 @@
+#!/bin/sh
+# kiosk-user package configuration script
+
+# Don't exit on error
+#set -e
+
+# source debconf library
+. /usr/share/debconf/confmodule
+
+check_username() {
+	username="${1}"
+
+	# Taken from adduser
+	NAME_REGEX="^[a-z][-a-z0-9_]*\$"
+	echo "${username}" | grep -Eq "^[a-z][-a-z0-9_]*\$"
+	return ${?}
+}
+
+check_execpath() {
+	execpath="${1}"
+
+	# Check file is executable
+	if [ -x "${execpath}" ]; then
+		return 0
+	else
+		return 255
+	fi
+}
+
+# Is this being run on installation, or once it's installed [configure|reconfigure]
+CONFIG_TYPE="${1}"
+
+# Get name of user to run application as
+if [ "${CONFIG_TYPE}" = "configure" ]; then
+	username_okay=0
+	while [ "${username_okay}" -eq 0 ]; do
+		# Get username
+		db_input high kiosk-user/username || true
+		db_go || true
+
+		if db_get kiosk-user/username; then
+			check_username "$RET"
+			if [ ${?} -eq 0 ]; then
+				username_okay=1
+			else
+				db_input low kiosk-user/username_error || [ "$?" = "30" ]
+				db_go
+				db_fset kiosk-user/username seen false || true
+			fi
+		else
+			db_input low kiosk-user/username_error || [ "$?" = "30" ]
+			db_go
+			db_fset kiosk-user/username seen false || true
+		fi
+	done
+fi
+
+# Get the full path to application to run
+execpath_okay=0
+while [ "${execpath_okay}" -eq 0 ]; do
+	# Get path to executable
+	db_input high kiosk-user/execpath || true
+	db_go || true
+
+	if db_get kiosk-user/execpath; then
+		check_execpath "$RET"
+		if [ ${?} -eq 0 ]; then
+			execpath_okay=1
+		else
+			db_input low kiosk-user/execpath_error || [ "$?" = "30" ]
+			db_go
+			db_fset kiosk-user/execpath seen false || true
+		fi
+	else
+		db_input low kiosk-user/execpath_error || [ "$?" = "30" ]
+		db_go
+		db_fset kiosk-user/execpath seen false || true
+	fi
+done
+
+# Get the arguents to pass to the application
+db_input high kiosk-user/execargs || true
+db_go || true
+
+# Kiosk options
+KIOSK_OPTIONS="Disable video blanking, Hide cursor (when inactive), Disable titlebar (Matchbox WM), Use cursor (Matchbox WM)"
+db_subst kiosk-user/options options "$KIOSK_OPTIONS"
+db_input medium kiosk-user/options || true
+db_go || true

@@ -1,0 +1,9 @@
+#!/bin/bash
+set -e
+
+. /usr/share/debconf/confmodule
+
+# Remove package from debconf
+if [ "$1" = purge ]; then
+	db_purge
+fi

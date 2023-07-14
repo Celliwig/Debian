@@ -1,0 +1,31 @@
+Template: kiosk-user/username
+Type: string
+Description: Username:
+ User to run kiosk application as (will be created if it doesn't exist).
+ .
+ Warning: Existing user's files will be modified.
+
+Template: kiosk-user/username_error
+Type: error
+Description: Invalid username.
+ The username that was entered is invalid.
+
+Template: kiosk-user/execpath
+Type: string
+Description: Application path:
+ Path to executable to run as kiosk application.
+
+Template: kiosk-user/execpath_error
+Type: error
+Description: Invalid application path.
+ The given path is incorrect, or the file is not executable.
+
+Template: kiosk-user/execargs
+Type: string
+Description: Application arguments:
+ Command-line arguments to pass to the application.
+
+Template: kiosk-user/options
+Type: multiselect
+Choices: All options, ${options}
+
