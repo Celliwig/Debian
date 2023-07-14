@@ -27,6 +27,21 @@ check_execpath() {
 	fi
 }
 
+kiosk_add_option() {
+	kiosk_option="${1}"
+	option_selected="${2}"
+	if [ -n "${KIOSK_OPTIONS}" ]; then
+		KIOSK_OPTIONS="${KIOSK_OPTIONS}, "
+	fi
+	KIOSK_OPTIONS="${KIOSK_OPTIONS}${kiosk_option}"
+	if [ ${option_selected} -eq 1 ]; then
+		if [ -n "${KIOSK_SELECTED_OPTIONS}" ]; then
+			KIOSK_SELECTED_OPTIONS="${KIOSK_SELECTED_OPTIONS}, "
+		fi
+		KIOSK_SELECTED_OPTIONS="${KIOSK_SELECTED_OPTIONS}${kiosk_option}"
+	fi
+}
+
 # Is this being run on installation, or once it's installed [configure|reconfigure]
 CONFIG_TYPE="${1}"
 
@@ -35,6 +50,7 @@ if [ "${CONFIG_TYPE}" = "configure" ]; then
 	username_okay=0
 	while [ "${username_okay}" -eq 0 ]; do
 		# Get username
+		db_set kiosk-user/username kiosk || true
 		db_input high kiosk-user/username || true
 		db_go || true
 
@@ -82,8 +98,23 @@ done
 db_input high kiosk-user/execargs || true
 db_go || true
 
+# Variable to pass to db_input
+KIOSK_OPTIONS=""
+KIOSK_SELECTED_OPTIONS=""
+
 # Kiosk options
-KIOSK_OPTIONS="Disable video blanking, Hide cursor (when inactive), Disable titlebar (Matchbox WM), Use cursor (Matchbox WM)"
+OPT_DISABLE_VIDEO="Disable video blanking"
+OPT_HIDE_CURSOR="Hide cursor (when inactive)"
+OPT_DISABLE_TITLEBAR="Disable titlebar (Matchbox WM)"
+OPT_USE_CURSOR="Use cursor (Matchbox WM)"
+# Load kiosk options
+kiosk_add_option "${OPT_DISABLE_TITLEBAR}" 1
+kiosk_add_option "${OPT_DISABLE_VIDEO}" 1
+kiosk_add_option "${OPT_HIDE_CURSOR}" 1
+kiosk_add_option "${OPT_USE_CURSOR}" 0
+
 db_subst kiosk-user/options options "$KIOSK_OPTIONS"
+db_set kiosk-user/options "$KIOSK_SELECTED_OPTIONS"
 db_input medium kiosk-user/options || true
 db_go || true
+
