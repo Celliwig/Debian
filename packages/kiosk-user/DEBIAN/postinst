@@ -152,10 +152,12 @@ update_startup_script_bash() {
 		echo "postinst: Updating .bashrc"
 		cat >> "${bashrc_file}" << EOF
 
-# Start X automatically
-startx
-# Exit shell so that systemd respawns automatic login
-exit
+if [[ -z ${DISPLAY} ]] && [[ $(tty) = /dev/tty1 ]]; then
+	# Start X automatically
+	startx
+	# Exit shell so that systemd respawns automatic login
+	exit
+fi
 EOF
 	fi
 }
