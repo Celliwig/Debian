@@ -1,5 +1,7 @@
 #!/bin/bash
-set -e
+
+# Don't exit on error
+#set -e
 
 . /usr/share/debconf/confmodule
 
@@ -8,6 +10,27 @@ if [ "$1" = purge ]; then
 	# Check for kiosk user
 	if db_get kiosk-user/username; then
 		KIOSK_USER="$RET"
+
+		# Check for processes running as user
+		loop=1
+		loop_count=0
+		echo -n "Checking for running processes."
+		while [ "${loop}" -eq 1 ]; do
+			echo -n "."
+			# Check for running processes
+			ps -u "${KIOSK_USER}" >/dev/null 2>&1
+			if [ ${?} -eq 1 ]; then
+				loop=0
+			fi
+			# Timeout
+			if [ "${loop_count}" -gt 30 ]; then
+				echo " Timeout"
+				return 255
+			fi
+			loop_count=$((loop_count+1))
+			sleep 1
+		done
+		echo " Okay"
 
 		# Check whether to delete user
 		if db_get kiosk-user/user_delete && [ "${RET}" = true ]; then
