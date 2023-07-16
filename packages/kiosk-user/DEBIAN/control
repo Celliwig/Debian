@@ -5,6 +5,7 @@ Maintainer: Celliwig <celliwig@nym.hush.com>
 Installed-Size: 120
 Pre-Depends: debconf
 Depends: adduser, bash, coreutils, grep, libc-bin, matchbox-window-manager, unclutter, x11-xserver-utils
+Suggests: matchbox-keyboard
 Section: embedded
 Priority: optional
 Description: Kiosk User

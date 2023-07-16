@@ -39,6 +39,11 @@ Type: boolean
 Default: false
 Description: for internal use
 
+Template: kiosk-user/enable_virtual_keyboard
+Type: boolean
+Default: false
+Description: for internal use
+
 Template: kiosk-user/hide_cursor
 Type: boolean
 Default: false

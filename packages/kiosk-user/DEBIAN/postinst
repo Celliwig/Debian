@@ -104,6 +104,17 @@ ${matchbox_wm_cmd} &
 
 EOF
 
+	# Enable virtual keyboard
+	if db_get kiosk-user/enable_virtual_keyboard && [ "${RET}" = true ]; then
+		if [ -x /usr/bin/matchbox-keyboard ]; then
+			cat >> "${xsession_file}" << EOF
+# Enable virtual keyboard
+matchbox-keyboard &
+
+EOF
+		fi
+	fi
+
 	# Hide cursor when not in use
 	if db_get kiosk-user/hide_cursor && [ "${RET}" = true ]; then
 		cat >> "${xsession_file}" << EOF
@@ -152,7 +163,7 @@ update_startup_script_bash() {
 		echo "postinst: Updating .bashrc"
 		cat >> "${bashrc_file}" << EOF
 
-if [[ -z ${DISPLAY} ]] && [[ $(tty) = /dev/tty1 ]]; then
+if [[ -z \${DISPLAY} ]] && [[ \$(tty) = /dev/tty1 ]]; then
 	# Start X automatically
 	startx
 	# Exit shell so that systemd respawns automatic login

@@ -108,9 +108,11 @@ OPT_DISABLE_VIDEO="Disable video blanking"
 OPT_HIDE_CURSOR="Hide cursor (when inactive)"
 OPT_DISABLE_TITLEBAR="Disable titlebar (Matchbox WM)"
 OPT_USE_CURSOR="Use cursor (Matchbox WM)"
+OPT_ENABLE_VIRT_KEYBRD="Enable virtual keyboard"
 # Load kiosk options
 kiosk_add_option "${OPT_DISABLE_TITLEBAR}" 1
 kiosk_add_option "${OPT_DISABLE_VIDEO}" 1
+kiosk_add_option "${OPT_ENABLE_VIRT_KEYBRD}" 0
 kiosk_add_option "${OPT_HIDE_CURSOR}" 1
 kiosk_add_option "${OPT_USE_CURSOR}" 0
 
@@ -136,6 +138,12 @@ if db_get kiosk-user/options; then
 		db_set kiosk-user/disable_blanking true
 	else
 		db_set kiosk-user/disable_blanking false
+	fi
+	# Enable virtual keyboard
+	if expr "${kiosk_options}" : ".*${OPT_ENABLE_VIRT_KEYBRD}.*" >/dev/null 2>&1; then
+		db_set kiosk-user/enable_virtual_keyboard true
+	else
+		db_set kiosk-user/enable_virtual_keyboard false
 	fi
 	# Hide cursor
 	if expr "${kiosk_options}" : ".*${OPT_HIDE_CURSOR}.*" >/dev/null 2>&1; then
