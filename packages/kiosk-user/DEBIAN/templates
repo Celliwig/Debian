@@ -44,6 +44,11 @@ Type: boolean
 Default: false
 Description: for internal use
 
+Template: kiosk-user/matchbox_wm_theme
+Type: string
+Default: Default
+Description: for internal use
+
 Template: kiosk-user/use_cursor
 Type: boolean
 Default: false

@@ -59,6 +59,75 @@ EOF
 	return 0
 }
 
+create_xsession() {
+	xsession_file="${1}/.xinitrc"
+
+	# Write header
+	cat > "${xsession_file}" << EOF
+# kiosk-user: X11 session file for startx
+#
+# Do not edit, use 'dpkg-reconfigure kiosk-user' to update
+###########################################################
+
+EOF
+
+	if db_get kiosk-user/disable_blanking && [ "${RET}" = true ]; then
+		cat >> "${xsession_file}" << EOF
+# Disable DPMS (Energy Star) features
+xset -dpms
+# Disable video blanking
+xset s noblank
+# Disable screen saver
+xset s off
+
+EOF
+	fi
+
+	# Create matchbox-window-manager args
+	matchbox_wm_cmd="matchbox-window-manager"
+	if db_get kiosk-user/disable_titlebar && [ "${RET}" = true ]; then
+		matchbox_wm_cmd="${matchbox_wm_cmd} -use_titlebar no"
+	fi
+	if db_get kiosk-user/use_cursor && [ "${RET}" = true ]; then
+		matchbox_wm_cmd="${matchbox_wm_cmd} -use_cursor yes"
+	fi
+	if db_get kiosk-user/matchbox_wm_theme; then
+		matchbox_wm_cmd="${matchbox_wm_cmd} -theme ${RET}"
+	fi
+	cat >> "${xsession_file}" << EOF
+# Start window manager
+${matchbox_wm_cmd} &
+
+EOF
+
+	# Hide cursor when not in use
+	if db_get kiosk-user/hide_cursor && [ "${RET}" = true ]; then
+		cat >> "${xsession_file}" << EOF
+# Hide cursor when inactive
+unclutter &
+
+EOF
+	fi
+
+	# Run kiosk application
+	if db_get kiosk-user/execpath; then
+		kiosk_application="${RET}"
+
+		kiosk_application_args=""
+		if db_get kiosk-user/execargs; then
+			kiosk_application_args="${RET}"
+		fi
+
+		cat >> "${xsession_file}" << EOF
+# Run application
+${kiosk_application} ${kiosk_application_args}
+EOF
+	else
+		echo "postinst: No kiosk application given"
+		return 255
+	fi
+}
+
 case "$1" in
 	configure)
 		if db_get kiosk-user/username; then
@@ -69,6 +138,7 @@ case "$1" in
 		fi
 
 		create_systemd_autologin "${KIOSK_USER}"
+		create_xsession "/home/${KIOSK_USER}"
 	;;
 #	abort-upgrade)
 #	;;
