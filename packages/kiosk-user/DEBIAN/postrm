@@ -49,6 +49,13 @@ if [ "$1" = purge ]; then
 				fi
 			fi
 		fi
+
+		# Check whether to delete home directory
+		if db_get kiosk-user/home_dir_delete && [ "${RET}" = true ]; then
+			if [ -d "/home/${KIOSK_USER}" ]; then
+				rm -rf "/home/${KIOSK_USER}"
+			fi
+		fi
 	else
 		echo "postrm: no kiosk user set \`$1'" >&2
 		exit 1

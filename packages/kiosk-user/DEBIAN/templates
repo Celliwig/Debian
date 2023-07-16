@@ -81,3 +81,8 @@ Template: kiosk-user/autologin_service_name
 Type: string
 Description: for internal use
 
+Template: kiosk-user/home_dir_delete
+Type: boolean
+Default: false
+Description: for internal use
+

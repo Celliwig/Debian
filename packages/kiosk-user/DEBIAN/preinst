@@ -14,6 +14,11 @@ case "$1" in
 		if db_get kiosk-user/username; then
 			KIOSK_USER="$RET"
 
+			# Check for existing home directory
+			if [ ! -d "/home/${KIOSK_USER}" ]; then
+				db_set kiosk-user/home_dir_delete true
+			fi
+
 			# Create kiosk group using user name,
 			# if it doesn't already exist
 			if ! getent group "${KIOSK_USER}" >/dev/null; then
