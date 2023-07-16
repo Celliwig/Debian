@@ -58,3 +58,26 @@ Template: kiosk-user/group_delete
 Type: boolean
 Default: false
 Description: for internal use
+
+Template: kiosk-user/autologin_service_dir
+Type: string
+Description: for internal use
+
+Template: kiosk-user/autologin_service_dir_delete
+Type: boolean
+Default: false
+Description: for internal use
+
+Template: kiosk-user/autologin_service_file
+Type: string
+Description: for internal use
+
+Template: kiosk-user/autologin_service_file_delete
+Type: boolean
+Default: false
+Description: for internal use
+
+Template: kiosk-user/autologin_service_name
+Type: string
+Description: for internal use
+

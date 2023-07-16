@@ -1,0 +1,77 @@
+#!/bin/bash
+set -e
+
+# summary of how this script can be called:
+#       * <postinst> `configure' <most-recently-configured-version>
+#       * <old-postinst> `abort-upgrade' <new version>
+#       * <conflictor's-postinst> `abort-remove' `in-favour' <package>
+#         <new-version>
+#       * <deconfigured's-postinst> `abort-deconfigure' `in-favour'
+#         <failed-install-package> <version> `removing'
+#         <conflicting-package> <version>
+#
+# for details, see http://www.debian.org/doc/debian-policy/ or
+# the debian-policy package
+#
+
+. /usr/share/debconf/confmodule
+
+create_systemd_autologin() {
+	login_username="${1}"
+
+	systemd_service_dir="/etc/systemd/system/getty@tty1.service.d"
+	systemd_service_file="${systemd_service_dir}/kiosk-user.conf"
+	systemd_service="getty@tty1.service"
+
+	# Create service directory
+	if [ ! -d "${systemd_service_dir}" ]; then
+		mkdir -p "${systemd_service_dir}" >/dev/null 2>&1
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Error creating systemd service directory"
+			return 255
+		fi
+		db_set kiosk-user/autologin_service_dir "${systemd_service_dir}"
+		db_set kiosk-user/autologin_service_dir_delete true
+	else
+		db_set kiosk-user/autologin_service_dir_delete false
+	fi
+
+	# Create service file
+	if [ ! -f "${systemd_service_file}" ]; then
+		cat > "${systemd_service_file}" << EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty -o '-p -f -- \\u' --noclear --autologin ${login_username} %I $TERM
+EOF
+
+		db_set kiosk-user/autologin_service_file "${systemd_service_file}"
+		db_set kiosk-user/autologin_service_file_delete true
+	else
+		db_set kiosk-user/autologin_service_file_delete false
+	fi
+
+	# Enable service
+	systemctl enable "${systemd_service}" >/dev/null || true
+	systemctl start "${systemd_service}" >/dev/null || true
+
+	db_set kiosk-user/autologin_service_name "${systemd_service}"
+
+	return 0
+}
+
+case "$1" in
+	configure)
+		if db_get kiosk-user/username; then
+			KIOSK_USER="$RET"
+		else
+			echo "postinst: Failed to get kiosk username"
+			return 255
+		fi
+
+		create_systemd_autologin "${KIOSK_USER}"
+	;;
+#	abort-upgrade)
+#	;;
+esac
+
+exit 0

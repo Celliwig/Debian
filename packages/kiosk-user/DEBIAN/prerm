@@ -1,0 +1,72 @@
+#!/bin/sh
+set -e
+
+# summary of how this script can be called:
+#        * <prerm> `remove'
+#        * <old-prerm> `upgrade' <new-version>
+#        * <new-prerm> `failed-upgrade' <old-version>
+#        * <conflictor's-prerm> `remove' `in-favour' <package> <new-version>
+#        * <deconfigured's-prerm> `deconfigure' `in-favour'
+#          <package-being-installed> <version> `removing'
+#          <conflicting-package> <version>
+# for details, see http://www.debian.org/doc/debian-policy/ or
+# the debian-policy package
+
+. /usr/share/debconf/confmodule
+
+remove_systemd_autologin() {
+	# Disable service
+	if db_get kiosk-user/autologin_service_name; then
+		systemd_service="$RET"
+	else
+		echo "prerm: Failed to get autologin service name"
+		return 255
+	fi
+	systemctl stop "${systemd_service}" >/dev/null || true
+	systemctl disable "${systemd_service}" >/dev/null || true
+
+	# Delete service file
+	if db_get kiosk-user/autologin_service_file_delete && [ "${RET}" = true ]; then
+		if db_get kiosk-user/autologin_service_file; then
+			systemd_service_file="$RET"
+		else
+			echo "prerm: Failed to get autologin service file"
+			return 255
+		fi
+		if [ -f "${systemd_service_file}" ]; then
+			rm "${systemd_service_file}" >/dev/null
+		fi
+	fi
+
+	# Delete service directory
+	if db_get kiosk-user/autologin_service_dir_delete && [ "${RET}" = true ]; then
+		if db_get kiosk-user/autologin_service_dir; then
+			systemd_service_dir="$RET"
+		else
+			echo "prerm: Failed to get autologin service dir"
+			return 255
+		fi
+		if [ -d "${systemd_service_dir}" ]; then
+			rm -rf "${systemd_service_dir}" >/dev/null
+		fi
+	fi
+
+	return 0
+}
+
+case "$1" in
+	remove)
+		if db_get kiosk-user/username; then
+			KIOSK_USER="$RET"
+		else
+			echo "prerm: Failed to get kiosk username"
+			return 255
+		fi
+
+		remove_systemd_autologin
+	;;
+#	abort-upgrade)
+#	;;
+esac
+
+exit 0
