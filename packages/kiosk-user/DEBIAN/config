@@ -109,11 +109,15 @@ OPT_HIDE_CURSOR="Hide cursor (when inactive)"
 OPT_DISABLE_TITLEBAR="Disable titlebar (Matchbox WM)"
 OPT_USE_CURSOR="Use cursor (Matchbox WM)"
 OPT_ENABLE_VIRT_KEYBRD="Enable virtual keyboard"
+OPT_REFLECT_X="Reflect display: X axis (Xrandr)"
+OPT_REFLECT_Y="Reflect display: Y axis (Xrandr)"
 # Load kiosk options
 kiosk_add_option "${OPT_DISABLE_TITLEBAR}" 1
 kiosk_add_option "${OPT_DISABLE_VIDEO}" 1
 kiosk_add_option "${OPT_ENABLE_VIRT_KEYBRD}" 0
 kiosk_add_option "${OPT_HIDE_CURSOR}" 1
+kiosk_add_option "${OPT_REFLECT_X}" 0
+kiosk_add_option "${OPT_REFLECT_Y}" 0
 kiosk_add_option "${OPT_USE_CURSOR}" 0
 
 db_subst kiosk-user/options options "$KIOSK_OPTIONS"
@@ -150,6 +154,18 @@ if db_get kiosk-user/options; then
 		db_set kiosk-user/hide_cursor true
 	else
 		db_set kiosk-user/hide_cursor false
+	fi
+	# Reflect screen X axis
+	if expr "${kiosk_options}" : ".*${OPT_REFLECT_X}.*" >/dev/null 2>&1; then
+		db_set kiosk-user/screen_reflect_x true
+	else
+		db_set kiosk-user/screen_reflect_x false
+	fi
+	# Reflect screen Y axis
+	if expr "${kiosk_options}" : ".*${OPT_REFLECT_Y}.*" >/dev/null 2>&1; then
+		db_set kiosk-user/screen_reflect_y true
+	else
+		db_set kiosk-user/screen_reflect_y false
 	fi
 	# Use cursor
 	if expr "${kiosk_options}" : ".*${OPT_USE_CURSOR}.*" >/dev/null 2>&1; then

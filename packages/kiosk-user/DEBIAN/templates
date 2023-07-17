@@ -44,6 +44,16 @@ Type: boolean
 Default: false
 Description: for internal use
 
+Template: kiosk-user/screen_reflect_x
+Type: boolean
+Default: false
+Description: for internal use
+
+Template: kiosk-user/screen_reflect_y
+Type: boolean
+Default: false
+Description: for internal use
+
 Template: kiosk-user/hide_cursor
 Type: boolean
 Default: false

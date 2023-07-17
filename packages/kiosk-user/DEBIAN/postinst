@@ -87,6 +87,27 @@ xset s off
 EOF
 	fi
 
+	# xrandr options
+	xrandr_cmd_args=""
+	xrandr_reflect=""
+	if db_get kiosk-user/screen_reflect_x && [ "${RET}" = true ]; then
+		xrandr_reflect="${xrandr_reflect}x"
+	fi
+	if db_get kiosk-user/screen_reflect_y && [ "${RET}" = true ]; then
+		xrandr_reflect="${xrandr_reflect}y"
+	fi
+	if [ -n "${xrandr_reflect}" ]; then
+		xrandr_cmd_args=" --reflect ${xrandr_reflect}"
+	fi
+	if [ -n "${xrandr_cmd_args}" ]; then
+		cat >> "${xsession_file}" << EOF
+# Get Xrandr screen name
+screen_name=\`tmp=\$(xrandr --query | grep -E "^.* connected [primary ]*[0-9]+x[0-9]+"); echo "\${tmp% connected*}"\`
+xrandr --output "\${screen_name}" ${xrandr_cmd_args}
+
+EOF
+	fi
+
 	# Create matchbox-window-manager args
 	matchbox_wm_cmd="matchbox-window-manager"
 	if db_get kiosk-user/disable_titlebar && [ "${RET}" = true ]; then
