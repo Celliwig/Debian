@@ -15,7 +15,7 @@ set -e
 . /usr/share/debconf/confmodule
 
 remove_systemd_autologin() {
-	# Disable service
+	# Disable autologin service
 	if db_get kiosk-user/autologin_service_name; then
 		systemd_service="$RET"
 	else
@@ -24,6 +24,10 @@ remove_systemd_autologin() {
 	fi
 	systemctl stop "${systemd_service}" >/dev/null || true
 	systemctl disable "${systemd_service}" >/dev/null || true
+
+	# If we delete the autologin files,
+	# then restarting tty service should restore normal login
+	restart_login=0
 
 	# Delete service file
 	if db_get kiosk-user/autologin_service_file_delete && [ "${RET}" = true ]; then
@@ -35,6 +39,7 @@ remove_systemd_autologin() {
 		fi
 		if [ -f "${systemd_service_file}" ]; then
 			rm "${systemd_service_file}" >/dev/null
+			restart_login=1
 		fi
 	fi
 
@@ -48,7 +53,14 @@ remove_systemd_autologin() {
 		fi
 		if [ -d "${systemd_service_dir}" ]; then
 			rm -rf "${systemd_service_dir}" >/dev/null
+			restart_login=1
 		fi
+	fi
+
+	# Restart tty login
+	if [ "${restart_login}" -eq 1 ]; then
+		systemctl enable "${systemd_service}" >/dev/null || true
+		systemctl start "${systemd_service}" >/dev/null || true
 	fi
 
 	return 0
