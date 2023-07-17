@@ -25,11 +25,11 @@ dpkg-reconfigure kiosk-user
 ```
 
 ### Options
-<img src="packages/pics/kiosk-user/dialog_username.png" height="20%" width="20%" align="right">
+<img src="pics/kiosk-user/dialog_username.png" height="20%" width="20%" align="right">
 Set the user to run the application as. This can be an existing user, but it is recommended to use a new user here.<br/><br/>
 This screen is only accessible on installation, you can't change the user with the package installed. To change the user, uninstall the package and reinstall it.
 <br clear="right"/><br/>
-<img src="packages/pics/kiosk-user/dialog_app_path.png" height="20%" width="20%" align="right">
+<img src="pics/kiosk-user/dialog_app_path.png" height="20%" width="20%" align="right">
 Enter the full path to the application, it will be checked and rejected if the file is not executable. E.g.
 
 ```
@@ -37,7 +37,7 @@ Enter the full path to the application, it will be checked and rejected if the f
 ```
 
 <br clear="right"/><br/>
-<img src="packages/pics/kiosk-user/dialog_app_zrgs.png" height="20%" width="20%" align="right">
+<img src="pics/kiosk-user/dialog_app_zrgs.png" height="20%" width="20%" align="right">
 Arguments to pass to the application, obviously these are application specific. Following the previous example:
 
 ```
@@ -49,10 +49,10 @@ Don't append '&' to run the application in the background, it will break things.
 
 ### Use dpkg-reconfigure to access these
 
-<img src="packages/pics/kiosk-user/dialog_screen_orientation.png" height="20%" width="20%" align="right">
+<img src="pics/kiosk-user/dialog_screen_orientation.png" height="20%" width="20%" align="right">
 Uses xrandr to set screen orientation.
 <br clear="right"/><br/>
-<img src="packages/pics/kiosk-user/dialog_options.png" height="20%" width="20%" align="right">
+<img src="pics/kiosk-user/dialog_options.png" height="20%" width="20%" align="right">
 Various additional options, the defaults are usually what you want.
 <br clear="right"/><br/>
 
