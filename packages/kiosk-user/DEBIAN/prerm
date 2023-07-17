@@ -54,6 +54,20 @@ remove_systemd_autologin() {
 	return 0
 }
 
+# Update systemd default target
+update_systemd_default_target() {
+	# Restore previous default systemd  target
+	if db_get kiosk-user/systemd_default_target_restore; then
+		systemd_default_target="$RET"
+
+		# Set previous default target
+		systemctl set-default "${systemd_default_target}"
+	else
+		echo "prerm: Failed to get systemd default target"
+		return 255
+	fi
+}
+
 case "$1" in
 	remove)
 		if db_get kiosk-user/username; then
@@ -64,6 +78,7 @@ case "$1" in
 		fi
 
 		remove_systemd_autologin
+		update_systemd_default_target
 	;;
 #	abort-upgrade)
 #	;;

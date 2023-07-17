@@ -69,6 +69,10 @@ Type: boolean
 Default: false
 Description: for internal use
 
+Template: kiosk-user/systemd_default_target_restore
+Type: string
+Description: for internal use
+
 Template: kiosk-user/autologin_service_dir
 Type: string
 Description: for internal use

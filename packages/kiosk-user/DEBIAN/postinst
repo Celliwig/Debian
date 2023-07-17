@@ -196,6 +196,19 @@ update_startup_script() {
 	fi
 }
 
+# Update systemd default target
+update_systemd_default_target() {
+	systemd_default_target=$(systemctl get-default)
+
+	# Save current default to use on package removal
+	db_set kiosk-user/systemd_default_target_restore "${systemd_default_target}"
+
+	# Check whether to set a new default target
+	if [ ! "${systemd_default_target}" = multi-user.target ]; then
+		# Set multi-user.target as systemd default
+		systemctl set-default multi-user.target
+	fi
+}
 
 case "$1" in
 	configure)
@@ -206,6 +219,7 @@ case "$1" in
 			return 255
 		fi
 
+		update_systemd_default_target
 		create_systemd_autologin "${KIOSK_USER}"
 		create_xsession "/home/${KIOSK_USER}"
 		update_startup_script "${KIOSK_USER}"
