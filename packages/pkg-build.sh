@@ -85,4 +85,4 @@ PKG_VER=`tmp=$(grep Version ${FILE_CTRL}); echo ${tmp#Version: *}`
 PKG_ARCH=`tmp=$(grep Architecture ${FILE_CTRL}); echo ${tmp#Architecture: *}`
 
 # Build package
-dpkg-deb --root-owner-group --build "${DIR_PKG}" "${PKG_NAME}_${PKG_VER}_${PKG_ARCH}.deb"
+dpkg-deb --root-owner-group --build "${DIR_PKG}" "build/${PKG_NAME}_${PKG_VER}_${PKG_ARCH}.deb"
