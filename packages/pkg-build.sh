@@ -46,7 +46,7 @@ FILE_CONFFILES="DEBIAN/conffiles"
 delete_tempfiles "${DIR_PKG}"
 
 # Calculate install size
-INSTALL_SIZE=`tmp=$(du -c -s -B 1K |tail -n 1); echo ${tmp%*total}`
+INSTALL_SIZE=`tmp=$(du -c -s -B 1K "${DIR_PKG}" | tail -n 1); echo ${tmp%*total}`
 
 # Update control file
 mv "${FILE_CTRL}" "${FILE_CTRL_PREV}" &>/dev/null
