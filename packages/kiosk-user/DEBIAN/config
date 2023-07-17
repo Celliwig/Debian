@@ -99,6 +99,49 @@ done
 db_input high kiosk-user/execargs
 db_go
 
+# Select screen rotation
+KIOSK_OPTIONS=""
+KIOSK_SELECTED_OPTIONS=""
+
+# Kiosk options
+ROTATION_NORMAL="Normal"
+ROTATION_ANTICLOCKWISE="90° Anti-Clockwise"
+ROTATION_CLOCKWISE="90° Clockwise"
+ROTATION_INVERTED="Inverted"
+# Load kiosk options
+kiosk_add_option "${ROTATION_NORMAL}" 0
+kiosk_add_option "${ROTATION_ANTICLOCKWISE}" 0
+kiosk_add_option "${ROTATION_CLOCKWISE}" 0
+kiosk_add_option "${ROTATION_INVERTED}" 0
+
+db_subst kiosk-user/screen_orientation screen_rotations "$KIOSK_OPTIONS"
+# Only set options on installation
+if [ "${CONFIG_TYPE}" = "configure" ]; then
+	db_set kiosk-user/screen_orientation "${ROTATION_NORMAL}"
+fi
+db_input medium kiosk-user/screen_orientation
+db_go
+
+screen_orientation_xrandr="normal"
+if db_get kiosk-user/screen_orientation; then
+	screen_orientation="$RET"
+
+	# Anti-Clockwise
+	if expr "${screen_orientation}" : ".*${ROTATION_ANTICLOCKWISE}.*" >/dev/null 2>&1; then
+		screen_orientation_xrandr="left"
+	fi
+	# Clockwise
+	if expr "${screen_orientation}" : ".*${ROTATION_CLOCKWISE}.*" >/dev/null 2>&1; then
+		screen_orientation_xrandr="right"
+	fi
+	# Inverted
+	if expr "${screen_orientation}" : ".*${ROTATION_INVERTED}.*" >/dev/null 2>&1; then
+		screen_orientation_xrandr="inverted"
+	fi
+fi
+db_set kiosk-user/screen_orientation_xrandr "${screen_orientation_xrandr}"
+
+# Extra options
 # Variable to pass to db_input
 KIOSK_OPTIONS=""
 KIOSK_SELECTED_OPTIONS=""
@@ -121,7 +164,7 @@ kiosk_add_option "${OPT_REFLECT_Y}" 0
 kiosk_add_option "${OPT_USE_CURSOR}" 0
 
 db_subst kiosk-user/options options "$KIOSK_OPTIONS"
-# Onlu set options on installation
+# Only set options on installation
 if [ "${CONFIG_TYPE}" = "configure" ]; then
 	db_set kiosk-user/options "$KIOSK_SELECTED_OPTIONS"
 fi

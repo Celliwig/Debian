@@ -97,7 +97,10 @@ EOF
 		xrandr_reflect="${xrandr_reflect}y"
 	fi
 	if [ -n "${xrandr_reflect}" ]; then
-		xrandr_cmd_args=" --reflect ${xrandr_reflect}"
+		xrandr_cmd_args="${xrandr_cmd_args} --reflect \"${xrandr_reflect}\""
+	fi
+	if db_get kiosk-user/screen_orientation_xrandr; then
+		xrandr_cmd_args="${xrandr_cmd_args} --rotate \"${RET}\""
 	fi
 	if [ -n "${xrandr_cmd_args}" ]; then
 		cat >> "${xsession_file}" << EOF

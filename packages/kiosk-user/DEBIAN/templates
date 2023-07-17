@@ -25,9 +25,19 @@ Type: string
 Description: Application arguments:
  Command-line arguments to pass to the application.
 
+Template: kiosk-user/screen_orientation
+Type: select
+Choices: ${screen_rotations}
+Description: Screen orientation:
+ Select screen orientation.
+
+Template: kiosk-user/screen_orientation_xrandr
+Type: string
+Description: for internal use
+
 Template: kiosk-user/options
 Type: multiselect
-Choices: All options, ${options}
+Choices: ${options}
 
 Template: kiosk-user/disable_titlebar
 Type: boolean
