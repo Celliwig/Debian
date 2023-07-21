@@ -146,7 +146,7 @@ done
 
 db_subst kiosk-user/window-manager window_managers "$KIOSK_OPTIONS"
 # Only set options on installation
-#if [ "${CONFIG_TYPE}" = "configure" ]; then
+#if [ "${CONFIG_TYPE}" = "configure" ] && db_get kiosk-user/state_locked && [ "${RET}" = false ]; then
 #	db_set kiosk-user/window-manager "${installed_window_managers[0]}"
 #fi
 db_input high kiosk-user/window-manager
@@ -174,7 +174,7 @@ kiosk_add_option "${ROTATION_INVERTED}" 0
 
 db_subst kiosk-user/screen_orientation screen_rotations "$KIOSK_OPTIONS"
 # Only set options on installation
-if [ "${CONFIG_TYPE}" = "configure" ]; then
+if [ "${CONFIG_TYPE}" = "configure" ] && db_get kiosk-user/state_locked && [ "${RET}" = false ]; then
 	db_set kiosk-user/screen_orientation "${ROTATION_NORMAL}"
 fi
 db_input high kiosk-user/screen_orientation
@@ -227,7 +227,7 @@ fi
 
 db_subst kiosk-user/options options "$KIOSK_OPTIONS"
 # Only set options on installation
-if [ "${CONFIG_TYPE}" = "configure" ]; then
+if [ "${CONFIG_TYPE}" = "configure" ] && db_get kiosk-user/state_locked && [ "${RET}" = false ]; then
 	db_set kiosk-user/options "$KIOSK_SELECTED_OPTIONS"
 fi
 db_input high kiosk-user/options
@@ -299,9 +299,12 @@ if db_get kiosk-user/enable_virtual_keyboard && [ "${RET}" = true ]; then
 
 	db_subst kiosk-user/virtual_keyboard virtual_keyboards "$KIOSK_OPTIONS"
 #	# Only set options on installation
-#	#if [ "${CONFIG_TYPE}" = "configure" ]; then
+#	#if [ "${CONFIG_TYPE}" = "configure" ] && db_get kiosk-user/state_locked && [ "${RET}" = false ]; then
 #	#	db_set kiosk-user/window-manager "${installed_window_managers[0]}"
 #	#fi
 	db_input high kiosk-user/virtual_keyboard
 	db_go
 fi
+
+# This script runs twice as 'configure', need some way to detect that
+db_set kiosk-user/state_locked true

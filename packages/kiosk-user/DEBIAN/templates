@@ -132,3 +132,8 @@ Type: boolean
 Default: false
 Description: for internal use
 
+Template: kiosk-user/state_locked
+Type: boolean
+Default: false
+Description: for internal use
+
