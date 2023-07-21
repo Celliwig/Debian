@@ -88,6 +88,10 @@ EOF
 	fi
 
 	# xrandr options
+	cat >> "${xsession_file}" << EOF
+# Get screen resolution
+screen0_resolution=\`xrandr --query --screen 0| grep -E "^\s*[0-9]+x[0-9]+\s*[0-9\.]+\*"| sed -E "s|^\s*([0-9]+)x([0-9]+)\s*[0-9\.]+\*.*|\1x\2|"\`
+EOF
 	xrandr_cmd_args=""
 	xrandr_reflect=""
 	if db_get kiosk-user/screen_reflect_x && [ "${RET}" = true ]; then
@@ -105,37 +109,71 @@ EOF
 	if [ -n "${xrandr_cmd_args}" ]; then
 		cat >> "${xsession_file}" << EOF
 # Get Xrandr screen name
-screen_name=\`tmp=\$(xrandr --query | grep -E "^.* connected [primary ]*[0-9]+x[0-9]+"); echo "\${tmp% connected*}"\`
+screen0_name=\`tmp=\$(xrandr --query --screen 0 | grep -E "^.* connected [primary ]*[0-9]+x[0-9]+"); echo "\${tmp% connected*}"\`
 xrandr --output "\${screen_name}" ${xrandr_cmd_args}
 
 EOF
 	fi
 
-	# Create matchbox-window-manager args
-	matchbox_wm_cmd="matchbox-window-manager"
-	if db_get kiosk-user/disable_titlebar && [ "${RET}" = true ]; then
-		matchbox_wm_cmd="${matchbox_wm_cmd} -use_titlebar no"
-	fi
-	if db_get kiosk-user/use_cursor && [ "${RET}" = true ]; then
-		matchbox_wm_cmd="${matchbox_wm_cmd} -use_cursor yes"
-	fi
-	if db_get kiosk-user/matchbox_wm_theme; then
-		matchbox_wm_cmd="${matchbox_wm_cmd} -theme ${RET}"
-	fi
-	cat >> "${xsession_file}" << EOF
-# Start window manager
-${matchbox_wm_cmd} &
+	window_manager_cmd=""
+	# Configure selected window manager
+	if db_get kiosk-user/window-manager && [ "${RET}" = matchbox-window-manager ]; then
+		# Create matchbox-window-manager args
+		window_manager_cmd="matchbox-window-manager"
+		# Disable titlebar
+		if db_get kiosk-user/disable_titlebar && [ "${RET}" = true ]; then
+			window_manager_cmd="${window_manager_cmd} -use_titlebar no"
+		fi
+		# Use WM cursor
+		if db_get kiosk-user/use_cursor && [ "${RET}" = true ]; then
+			window_manager_cmd="${window_manager_cmd} -use_cursor yes"
+		fi
+		# Set WM theme
+		if db_get kiosk-user/matchbox_wm_theme; then
+			window_manager_cmd="${window_manager_cmd} -theme ${RET}"
+		fi
+		# Run in the background
+		window_manager_cmd="${window_manager_cmd} &\n"
+	elif db_get kiosk-user/window-manager && [ "${RET}" = xfwm4 ]; then
+		# Start window manager
+		window_manager_cmd="${window_manager_cmd}xfwm4 &\n"
 
-EOF
+		# 'sleep' used to delay execution until xfwm4 is running
+		# Disable workspaces
+		window_manager_cmd="${window_manager_cmd}(sleep 3 && xfconf-query -c xfwm4 -p /general/workspace_count -s 0) &\n"
+		# Disable titlebar
+		if db_get kiosk-user/disable_titlebar && [ "${RET}" = true ]; then
+			window_manager_cmd="${window_manager_cmd}(sleep 3 && xfconf-query -c xfwm4 -p /general/titleless_maximize -s true) &\n"
+		fi
+	fi
+	# Check that a window manager's selected
+	if [ -n "{window_manager_cmd}" ]; then
+		window_manager_cmd="# Start window manager\n${window_manager_cmd}\n"
+		echo -ne "${window_manager_cmd}" >> "${xsession_file}"
+	else
+		exit 255
+	fi
 
-	# Enable virtual keyboard
+	# Check virtual keyboard enabled
 	if db_get kiosk-user/enable_virtual_keyboard && [ "${RET}" = true ]; then
-		if [ -x /usr/bin/matchbox-keyboard ]; then
-			cat >> "${xsession_file}" << EOF
-# Enable virtual keyboard
-matchbox-keyboard &
+		virtual_keyboard_cmd=""
+		# Enable virtual keyboard
+		if db_get kiosk-user/virtual_keyboard && [ "${RET}" = matchbox-keyboard ]; then
+			virtual_keyboard_cmd="matchbox-keyboard &\n"
+		elif db_get kiosk-user/virtual_keyboard && [ "${RET}" = onboard ]; then
 
-EOF
+			virtual_keyboard_cmd="${virtual_keyboard_cmd}pixels_x=\"\${screen0_resolution%x*}\"\n"
+			virtual_keyboard_cmd="${virtual_keyboard_cmd}pixels_y=\"\${screen0_resolution#*x}\"\n"
+			virtual_keyboard_cmd="${virtual_keyboard_cmd}keyboard_height=\"\$((\${pixels_y}/4))\"\n"
+			virtual_keyboard_cmd="${virtual_keyboard_cmd}keyboard_y_offset=\"\$((\${pixels_y}-\${keyboard_height}))\"\n"
+
+			virtual_keyboard_cmd="${virtual_keyboard_cmd}onboard -s \"\${pixels_x}x\${keyboard_height}\" -x 0 -y \"\${keyboard_y_offset}\" &\n"
+		fi
+
+		# Check that a virtual keyboard's selected
+		if [ -n "${virtual_keyboard_cmd}" ]; then
+			virtual_keyboard_cmd="# Enable virtual keyboard\n${virtual_keyboard_cmd}\n"
+			echo -ne "${virtual_keyboard_cmd}" >> "${xsession_file}"
 		fi
 	fi
 
