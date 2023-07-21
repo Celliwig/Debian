@@ -50,6 +50,9 @@ check_installed_wm() {
 	if [ -x "/usr/bin/matchbox-window-manager" ]; then
 		rtn+="matchbox-window-manager "
 	fi
+	if [ -x "/usr/bin/openbox" ]; then
+		rtn+="openbox "
+	fi
 	if [ -x "/usr/bin/xfwm4" ]; then
 		rtn+="xfwm4 "
 	fi

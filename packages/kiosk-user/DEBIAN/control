@@ -1,11 +1,11 @@
 Package: kiosk-user
-Version: 0.2
+Version: 0.3
 Architecture: all
 Maintainer: Celliwig <celliwig@nym.hush.com>
-Installed-Size: 128
+Installed-Size: 52
 Pre-Depends: debconf
-Depends: adduser, bash, coreutils, grep, libc-bin, matchbox-window-manager, unclutter, x11-xserver-utils
-Suggests: matchbox-keyboard
+Depends: adduser, bash, coreutils, grep, libc-bin, unclutter, x11-xserver-utils
+Suggests: matchbox-keyboard, matchbox-window-manager, onboard, openbox, xfwm4
 Section: embedded
 Priority: optional
 Description: Kiosk User

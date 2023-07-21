@@ -134,6 +134,32 @@ EOF
 		fi
 		# Run in the background
 		window_manager_cmd="${window_manager_cmd} &\n"
+	elif db_get kiosk-user/window-manager && [ "${RET}" = openbox ]; then
+		# Create config
+		cat >> "${xsession_file}" << EOF
+# Create openbox config
+DIR_OBOX="\${HOME}/.config/openbox"
+if [ ! -d "\${DIR_OBOX}" ]; then
+	mkdir -p "\${DIR_OBOX}"
+	# Blank autostart
+	touch "\${DIR_OBOX}/autostart"
+	# Blank environment
+	touch "\${DIR_OBOX}/environment"
+	# No menus
+	echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<openbox_menu xmlns=\"http://openbox.org/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://openbox.org/file:///usr/share/openbox/menu.xsd\">\n\n<menu id=\"root-menu\" label=\"Openbox 3\">\n  <item label=\"Exit\">\n    <action name=\"Exit\" />\n  </item>\n</menu>\n\n</openbox_menu>\n" > "\${DIR_OBOX}/menu.xml"
+fi
+EOF
+
+		# Start window manager
+		window_manager_cmd="${window_manager_cmd}openbox &\n"
+
+#		# 'sleep' used to delay execution until xfwm4 is running
+#		# Disable workspaces
+#		window_manager_cmd="${window_manager_cmd}(sleep 3 && xfconf-query -c xfwm4 -p /general/workspace_count -s 0) &\n"
+#		# Disable titlebar
+#		if db_get kiosk-user/disable_titlebar && [ "${RET}" = true ]; then
+#			window_manager_cmd="${window_manager_cmd}(sleep 3 && xfconf-query -c xfwm4 -p /general/titleless_maximize -s true) &\n"
+#		fi
 	elif db_get kiosk-user/window-manager && [ "${RET}" = xfwm4 ]; then
 		# Start window manager
 		window_manager_cmd="${window_manager_cmd}xfwm4 &\n"
