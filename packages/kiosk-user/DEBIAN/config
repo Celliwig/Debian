@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # kiosk-user package configuration script
 
 # Don't exit on error
@@ -25,6 +25,36 @@ check_execpath() {
 	else
 		return 255
 	fi
+}
+
+# Check for supported virtual keyboards
+# Returns string of virtual keyboards
+check_installed_virtual_keyboards() {
+	rtn=""
+
+	if [ -x "/usr/bin/matchbox-keyboard" ]; then
+		rtn+="matchbox-keyboard "
+	fi
+	if [ -x "/usr/bin/onboard" ]; then
+		rtn+="onboard "
+	fi
+
+	echo ${rtn}
+}
+
+# Check whether supported window managers are installed
+# Returns string of window managers
+check_installed_wm() {
+	rtn=""
+
+	if [ -x "/usr/bin/matchbox-window-manager" ]; then
+		rtn+="matchbox-window-manager "
+	fi
+	if [ -x "/usr/bin/xfwm4" ]; then
+		rtn+="xfwm4 "
+	fi
+
+	echo "${rtn}"
 }
 
 kiosk_add_option() {
@@ -99,6 +129,34 @@ done
 db_input high kiosk-user/execargs
 db_go
 
+# Select window manager
+KIOSK_OPTIONS=""
+KIOSK_SELECTED_OPTIONS=""
+
+installed_window_managers=( $(check_installed_wm) )
+# Check that at least one window manager is available
+if [ -z "${installed_window_managers}" ]; then
+	echo "kiosk-user: No supported window manager available."
+	exit 255
+fi
+# Load kiosk options
+for tmp_option in "${installed_window_managers[@]}"; do
+	kiosk_add_option "${tmp_option}" 0
+done
+
+db_subst kiosk-user/window-manager window_managers "$KIOSK_OPTIONS"
+# Only set options on installation
+#if [ "${CONFIG_TYPE}" = "configure" ]; then
+#	db_set kiosk-user/window-manager "${installed_window_managers[0]}"
+#fi
+db_input high kiosk-user/window-manager
+db_go
+# Get selected window manager
+window_manager=""
+if db_get kiosk-user/window-manager; then
+	window_manager="$RET"
+fi
+
 # Select screen rotation
 KIOSK_OPTIONS=""
 KIOSK_SELECTED_OPTIONS=""
@@ -119,7 +177,7 @@ db_subst kiosk-user/screen_orientation screen_rotations "$KIOSK_OPTIONS"
 if [ "${CONFIG_TYPE}" = "configure" ]; then
 	db_set kiosk-user/screen_orientation "${ROTATION_NORMAL}"
 fi
-db_input medium kiosk-user/screen_orientation
+db_input high kiosk-user/screen_orientation
 db_go
 
 screen_orientation_xrandr="normal"
@@ -149,7 +207,7 @@ KIOSK_SELECTED_OPTIONS=""
 # Kiosk options
 OPT_DISABLE_VIDEO="Disable video blanking"
 OPT_HIDE_CURSOR="Hide cursor (when inactive)"
-OPT_DISABLE_TITLEBAR="Disable titlebar (Matchbox WM)"
+OPT_DISABLE_TITLEBAR="Disable titlebar"
 OPT_USE_CURSOR="Use cursor (Matchbox WM)"
 OPT_ENABLE_VIRT_KEYBRD="Enable virtual keyboard"
 OPT_REFLECT_X="Reflect display: X axis (Xrandr)"
@@ -157,18 +215,22 @@ OPT_REFLECT_Y="Reflect display: Y axis (Xrandr)"
 # Load kiosk options
 kiosk_add_option "${OPT_DISABLE_TITLEBAR}" 1
 kiosk_add_option "${OPT_DISABLE_VIDEO}" 1
-kiosk_add_option "${OPT_ENABLE_VIRT_KEYBRD}" 0
+if [ -n "$(check_installed_virtual_keyboards)" ]; then
+	kiosk_add_option "${OPT_ENABLE_VIRT_KEYBRD}" 0
+fi
 kiosk_add_option "${OPT_HIDE_CURSOR}" 1
 kiosk_add_option "${OPT_REFLECT_X}" 0
 kiosk_add_option "${OPT_REFLECT_Y}" 0
-kiosk_add_option "${OPT_USE_CURSOR}" 0
+if [ "$window_manager" = matchbox-window-manager ]; then
+	kiosk_add_option "${OPT_USE_CURSOR}" 0
+fi
 
 db_subst kiosk-user/options options "$KIOSK_OPTIONS"
 # Only set options on installation
 if [ "${CONFIG_TYPE}" = "configure" ]; then
 	db_set kiosk-user/options "$KIOSK_SELECTED_OPTIONS"
 fi
-db_input medium kiosk-user/options
+db_input high kiosk-user/options
 db_go
 
 if db_get kiosk-user/options; then
@@ -216,4 +278,30 @@ if db_get kiosk-user/options; then
 	else
 		db_set kiosk-user/use_cursor false
 	fi
+fi
+
+# If virtual keyboard enabled, select one
+if db_get kiosk-user/enable_virtual_keyboard && [ "${RET}" = true ]; then
+	# Select virtual keyboard
+	KIOSK_OPTIONS=""
+	KIOSK_SELECTED_OPTIONS=""
+
+	installed_virtual_keyboards=( $(check_installed_virtual_keyboards) )
+	# Check that at least one window manager is available
+	if [ -z "${installed_virtual_keyboards}" ]; then
+		echo "kiosk-user: No supported virtual keyboards installed."
+		exit 255
+	fi
+	# Load kiosk options
+	for tmp_option in "${installed_virtual_keyboards[@]}"; do
+		kiosk_add_option "${tmp_option}" 0
+	done
+
+	db_subst kiosk-user/virtual_keyboard virtual_keyboards "$KIOSK_OPTIONS"
+#	# Only set options on installation
+#	#if [ "${CONFIG_TYPE}" = "configure" ]; then
+#	#	db_set kiosk-user/window-manager "${installed_window_managers[0]}"
+#	#fi
+	db_input high kiosk-user/virtual_keyboard
+	db_go
 fi

@@ -25,6 +25,12 @@ Type: string
 Description: Application arguments:
  Command-line arguments to pass to the application.
 
+Template: kiosk-user/window-manager
+Type: select
+Choices: ${window_managers}
+Description: Window manager:
+ Select window manager.
+
 Template: kiosk-user/screen_orientation
 Type: select
 Choices: ${screen_rotations}
@@ -78,6 +84,12 @@ Template: kiosk-user/use_cursor
 Type: boolean
 Default: false
 Description: for internal use
+
+Template: kiosk-user/virtual_keyboard
+Type: select
+Choices: ${virtual_keyboards}
+Description: Virtual keyboard:
+ Select virtual keyboard.
 
 Template: kiosk-user/user_delete
 Type: boolean
