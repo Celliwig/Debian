@@ -1,8 +1,8 @@
 Package: simple-wifi-ap
-Version: 0.2
+Version: 0.3
 Architecture: all
 Maintainer: Celliwig <celliwig@nym.hush.com>
-Installed-Size: 36
+Installed-Size: 44
 Pre-Depends: bash, coreutils, debconf, grep, network-manager, sed
 Depends: dnsmasq
 Conflicts: dhcpcd5

@@ -1,0 +1,29 @@
+Template: simple-wifi-ap/wifi_ssid
+Type: string
+Description: WiFi SSID:
+ The SSID (Service Set IDentifier) is the name that identifies the Wifi network.
+ .
+ Try to enter something unique, or go with the default.
+
+Template: simple-wifi-ap/wifi_ssid_error
+Type: error
+Description: Invalid WiFi SSID.
+ The WiFi SSID that was entered is invalid.
+
+Template: simple-wifi-ap/wifi_psk
+Type: string
+Description: WiFi Passphrase:
+ This is the WPA2 passhrase used to sign in to the WiFi network.
+ .
+ The passphrase must be between 8 and 63 characters long.
+ No passphrase disables WAP2 security.
+
+Template: simple-wifi-ap/wifi_psk_error
+Type: error
+Description: Invalid WiFi passphrase.
+ The WiFi passphrase that was entered is invalid.
+
+Template: simple-wifi-ap/state_locked
+Type: boolean
+Default: false
+Description: for internal use

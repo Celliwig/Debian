@@ -1,0 +1,127 @@
+#!/bin/bash
+# simple-wifi-ap package configuration script
+
+# Don't exit on error
+#set -e
+
+# source debconf library
+. /usr/share/debconf/confmodule
+
+# Check WiFi PSK is valid
+check_wifi_passphrase() {
+	wifi_passphrase="${1}"
+
+	# Check minimum characters
+	if [ "${#wifi_passphrase}" -lt 8 ]; then
+		return 1
+	fi
+	# Check maxmimum characters
+	if [ "${#wifi_passphrase}" -gt 63 ]; then
+		return 1
+	fi
+
+	# WiFi passphrase valid
+	return 0
+}
+
+# Check WiFi SSID is valid
+# Based on: https://www.cisco.com/assets/sol/sb/WAP321_Emulators/WAP321_Emulator_v1.0.0.3/help/Wireless05.html
+check_wifi_ssid() {
+	wifi_ssid="${1}"
+
+	# Check minimum characters
+	if [ "${#wifi_ssid}" -lt 2 ]; then
+		return 1
+	fi
+	# Check maxmimum characters
+	if [ "${#wifi_ssid}" -gt 32 ]; then
+		return 1
+	fi
+
+	# Check invalid characters
+	sed_strip_non_alphanumeric='s|[[^:alphanumeric:]]||g'
+	sed_strip_invalid_chars='s|[+?"$\[\\\]]*||g'
+	sed_strip_leading_exclamation='s|^!||'
+	sed_strip_leading_hash='s|^#||'
+	sed_strip_leading_semicolon='s|^;||'
+	sed_strip_leading_space='s|^\s+||'
+	sed_strip_trailing_space='s|\s+$||'
+
+	# Strip invalid characters
+	wifi_ssid_stripped=`echo "${wifi_ssid}"| sed -E -e "${sed_strip_non_alphanumeric}" \
+							-e "${sed_strip_invalid_chars}" \
+							-e "${sed_strip_leading_exclamation}" \
+							-e "${sed_strip_leading_hash}" \
+							-e "${sed_strip_leading_semicolon}" \
+							-e "${sed_strip_leading_space}" \
+							-e "${sed_strip_trailing_space}"`
+	# Compare strings
+	if [[ "${wifi_ssid}" != "${wifi_ssid_stripped}" ]]; then
+		return 1
+	fi
+
+	# WiFi SSID valid
+	return 0
+}
+
+# Is this being run on installation, or once it's installed [configure|reconfigure]
+CONFIG_TYPE="${1}"
+
+# Get WiFi SSID
+wifi_ssid_okay=0
+while [ "${wifi_ssid_okay}" -eq 0 ]; do
+	# Get WiFi SSID
+	# Set default on first, and only first, pass
+	if [ "${CONFIG_TYPE}" = "configure" ] && db_get simple-wifi-ap/state_locked && [ "${RET}" = false ]; then
+		# Create (repeatably) default Wifi SSID
+		default_ssid=`tmp_id=$(sha256sum /etc/machine-id); echo "$(hostname)-${tmp_id:0:6}"`
+		db_set simple-wifi-ap/wifi_ssid "${default_ssid}"
+	fi
+	db_input high simple-wifi-ap/wifi_ssid
+	db_go
+
+	if db_get simple-wifi-ap/wifi_ssid; then
+		check_wifi_ssid "$RET"
+		if [ ${?} -eq 0 ]; then
+			wifi_ssid_okay=1
+		else
+			db_input low simple-wifi-ap/wifi_ssid_error
+			db_go
+			db_fset simple-wifi-ap/wifi_ssid seen false
+		fi
+	else
+		db_input low simple-wifi-ap/wifi_ssid_error
+		db_go
+		db_fset simple-wifi-ap/wifi_ssid seen false
+	fi
+done
+
+# Get WiFi PSK
+wifi_psk_okay=0
+while [ "${wifi_psk_okay}" -eq 0 ]; do
+	# Get WiFi PSK
+
+	db_input high simple-wifi-ap/wifi_psk
+	db_go
+
+	if db_get simple-wifi-ap/wifi_psk; then
+		check_wifi_passphrase "$RET"
+		if [ ${?} -eq 0 ]; then
+			wifi_psk_okay=1
+		else
+			db_input low simple-wifi-ap/wifi_psk_error
+			db_go
+			db_fset simple-wifi-ap/wifi_psk seen false
+		fi
+	else
+		db_input low simple-wifi-ap/wifi_psk_error
+		db_go
+		db_fset simple-wifi-ap/wifi_psk seen false
+	fi
+done
+
+
+
+
+# This script runs twice as 'configure', need some way to detect that
+db_set simple-wifi-ap/state_locked true
