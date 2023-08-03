@@ -7,17 +7,88 @@
 # source debconf library
 . /usr/share/debconf/confmodule
 
+# Check IPv4 address
+check_ipv4_address() {
+	ipv4_data="${1}"
+	if [ -z "${2}" ]; then
+		skip_host_check=0
+	else
+		skip_host_check=1
+	fi
+
+	# Identify & parse passed data (address)
+	rslt=`echo "${ipv4_data}"| sed -E 's|^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$| \1 \2 \3 \4 |'`
+	if [ ${?} -eq 0 ]; then
+		# Convert to array
+		rslt=( ${rslt} )
+		# Forced to numbers
+		rslt[0]=$((${rslt[0]}+0))
+		rslt[1]=$((${rslt[1]}+0))
+		rslt[2]=$((${rslt[2]}+0))
+		rslt[3]=$((${rslt[3]}+0))
+		# Check dot quads
+		# Check no larger than 255
+		if [ "${rslt[0]}" -gt 255 ]; then
+			return 1
+		fi
+		if [ "${rslt[1]}" -gt 255 ]; then
+			return 1
+		fi
+		if [ "${rslt[2]}" -gt 255 ]; then
+			return 1
+		fi
+		if [ "${rslt[3]}" -gt 255 ]; then
+			return 1
+		fi
+		# Check MSB, & LSB are not zero (skip LSB for network addresses)
+		if [ "${rslt[0]}" -eq 0 ]; then
+			return 1
+		fi
+		if [ "${rslt[3]}" -eq 0 ] && [ "${skip_host_check}" -eq 0 ]; then
+			return 1
+		fi
+	else
+		return 1
+	fi
+
+	# Valid data
+	return 0
+}
+
+# Check IPv4 address
+check_ipv4_addressmask() {
+	ipv4_data="${1}"
+
+	# Identify & parse passed data (address)
+	rslt=`echo "${ipv4_data}"| sed -E 's|^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/([0-9]{1,2})$|\1|'`
+	if [ ${?} -eq 0 ]; then
+		# Force to number
+		rslt=$((${rslt}+0))
+		if [ "${rslt}" -gt 32 ]; then
+			return 1
+		fi
+	else
+		return 1
+	fi
+
+	# Valid data
+	return $(check_ipv4_address "${ipv4_data%*/${rslt}}")
+}
+
 # Check WiFi PSK is valid
 check_wifi_passphrase() {
 	wifi_passphrase="${1}"
 
-	# Check minimum characters
-	if [ "${#wifi_passphrase}" -lt 8 ]; then
-		return 1
-	fi
-	# Check maxmimum characters
-	if [ "${#wifi_passphrase}" -gt 63 ]; then
-		return 1
+	# No passphrase is valid to
+	if [ -n "${wifi_passphrase}" ]; then
+		# Check minimum characters
+		if [ "${#wifi_passphrase}" -lt 8 ]; then
+			return 1
+		fi
+		# Check maxmimum characters
+		if [ "${#wifi_passphrase}" -gt 63 ]; then
+			return 1
+		fi
 	fi
 
 	# WiFi passphrase valid
@@ -64,10 +135,49 @@ check_wifi_ssid() {
 	return 0
 }
 
+# Internal function to build an option list
+config_add_option() {
+	config_option="${1}"
+	option_selected="${2}"
+	if [ -n "${CONFIG_OPTIONS}" ]; then
+		CONFIG_OPTIONS="${CONFIG_OPTIONS}, "
+	fi
+	CONFIG_OPTIONS="${CONFIG_OPTIONS}${config_option}"
+	if [ ${option_selected} -eq 1 ]; then
+		if [ -n "${CONFIG_SELECTED_OPTIONS}" ]; then
+			CONFIG_SELECTED_OPTIONS="${CONFIG_SELECTED_OPTIONS}, "
+		fi
+		CONFIG_SELECTED_OPTIONS="${CONFIG_SELECTED_OPTIONS}${config_option}"
+	fi
+}
+
+# NetworkManager, list network devices
+nm_net_devices() {
+	# Get network type to list
+	if [ -n "${1}" ]; then
+		netdev_type="${1}"
+	else
+		return 1
+	fi
+
+        # Variable to store network devices
+	netdev_list=()
+	for tmp_netdev in `nmcli --terse --fields DEVICE,TYPE  device status| grep -E "^.*:${netdev_type}\$"`; do
+		tmp_netdev="${tmp_netdev%*:${netdev_type}}"
+		netdev_list+=( "${tmp_netdev}" )
+	done
+
+	echo "${netdev_list[@]}"
+}
+
 # Is this being run on installation, or once it's installed [configure|reconfigure]
 CONFIG_TYPE="${1}"
 
+####################################################################################################
+# Wifi options
+####################################################################################################
 # Get WiFi SSID
+##################################################
 wifi_ssid_okay=0
 while [ "${wifi_ssid_okay}" -eq 0 ]; do
 	# Get WiFi SSID
@@ -77,7 +187,7 @@ while [ "${wifi_ssid_okay}" -eq 0 ]; do
 		default_ssid=`tmp_id=$(sha256sum /etc/machine-id); echo "$(hostname)-${tmp_id:0:6}"`
 		db_set simple-wifi-ap/wifi_ssid "${default_ssid}"
 	fi
-	db_input high simple-wifi-ap/wifi_ssid
+	db_input critical simple-wifi-ap/wifi_ssid
 	db_go
 
 	if db_get simple-wifi-ap/wifi_ssid; then
@@ -97,11 +207,12 @@ while [ "${wifi_ssid_okay}" -eq 0 ]; do
 done
 
 # Get WiFi PSK
+##################################################
 wifi_psk_okay=0
 while [ "${wifi_psk_okay}" -eq 0 ]; do
 	# Get WiFi PSK
 
-	db_input high simple-wifi-ap/wifi_psk
+	db_input critical simple-wifi-ap/wifi_psk
 	db_go
 
 	if db_get simple-wifi-ap/wifi_psk; then
@@ -120,8 +231,156 @@ while [ "${wifi_psk_okay}" -eq 0 ]; do
 	fi
 done
 
+####################################################################################################
+# Network options
+####################################################################################################
+# Select network layout
+##################################################
+CONFIG_OPTIONS=""
+CONFIG_SELECTED_OPTIONS=""
 
+# Network layout options
+NET_LAYOUT_STANDALONE="Stand-Alone"
+NET_LAYOUT_BRIDGED="Bridged"
+NET_LAYOUT_ROUTED="Routed"
+# Load config options
+config_add_option "${NET_LAYOUT_STANDALONE}" 0
+config_add_option "${NET_LAYOUT_BRIDGED}" 0
+#config_add_option "${NET_LAYOUT_ROUTED}" 0
 
+db_subst simple-wifi-ap/wifi_network_layout network_layouts "${CONFIG_OPTIONS}"
+# Only set options on installation
+if [ "${CONFIG_TYPE}" = "configure" ] && db_get simple-wifi-ap/state_locked && [ "${RET}" = false ]; then
+        db_set simple-wifi-ap/wifi_network_layout "${NET_LAYOUT_BRIDGED}"
+fi
+db_input medium simple-wifi-ap/wifi_network_layout
+db_go
+
+# Select WiFi network device
+##################################################
+CONFIG_OPTIONS=""
+CONFIG_SELECTED_OPTIONS=""
+
+nm_wifi_devices=( $(nm_net_devices "wifi") )
+# Check that at least one wifi device is available
+if [ -z "${nm_wifi_devices=}" ]; then
+	echo "simple-wifi-ap: No WiFi devices available."
+	exit 255
+fi
+# Load config options
+for tmp_option in "${nm_wifi_devices[@]}"; do
+	config_add_option "${tmp_option}" 0
+done
+
+db_subst simple-wifi-ap/wifi_device wifi_devices "$CONFIG_OPTIONS"
+# Only set options on installation
+if [ "${CONFIG_TYPE}" = "configure" ] && db_get simple-wifi-ap/state_locked && [ "${RET}" = false ]; then
+	db_set simple-wifi-ap/wifi_device "${nm_wifi_devices[0]}"
+fi
+db_input high simple-wifi-ap/wifi_device
+db_go
+
+# Select network IPv4 config
+##################################################
+CONFIG_OPTIONS=""
+CONFIG_SELECTED_OPTIONS=""
+
+# Network layout options
+NET_IPV4_DISABLED="Disabled"
+NET_IPV4_STATIC="Static"
+NET_IPV4_DHCP="Dynamic"
+# Load config options
+config_add_option "${NET_IPV4_DISABLED}" 0
+config_add_option "${NET_IPV4_STATIC}" 0
+config_add_option "${NET_IPV4_DHCP}" 0
+
+db_subst simple-wifi-ap/wifi_ipv4_config ipv4_options "${CONFIG_OPTIONS}"
+# Only set options on installation
+if [ "${CONFIG_TYPE}" = "configure" ] && db_get simple-wifi-ap/state_locked && [ "${RET}" = false ]; then
+        db_set simple-wifi-ap/wifi_ipv4_config "${NET_IPV4_STATIC}"
+fi
+db_input medium simple-wifi-ap/wifi_ipv4_config
+db_go
+
+# Only get IPv4 configuration if the 'simple-wifi-ap/wifi_ipv4_config' is 'Static'
+if db_get simple-wifi-ap/wifi_ipv4_config && [ "${RET}" = Static ]; then
+	# Get WiFi IPv4 address
+	##################################################
+	wifi_ipv4_okay=0
+	while [ "${wifi_ipv4_okay}" -eq 0 ]; do
+		# Get WiFi IPv4 address
+		db_input critical simple-wifi-ap/wifi_ipv4_addressmask
+		db_go
+
+		if db_get simple-wifi-ap/wifi_ipv4_addressmask; then
+			check_ipv4_addressmask "$RET"
+			if [ ${?} -eq 0 ]; then
+				wifi_ipv4_okay=1
+			else
+				db_input low simple-wifi-ap/wifi_ipv4_error
+				db_go
+				db_fset simple-wifi-ap/wifi_ipv4_addressmask seen false
+			fi
+		else
+			db_input low simple-wifi-ap/wifi_ipv4_error
+			db_go
+			db_fset simple-wifi-ap/wifi_ipv4_addressmask seen false
+		fi
+	done
+
+	# Get WiFi IPv4 DNS
+	##################################################
+	wifi_ipv4_okay=0
+	while [ "${wifi_ipv4_okay}" -eq 0 ]; do
+		# Get WiFi IPv4 address
+		db_input critical simple-wifi-ap/wifi_ipv4_dns
+		db_go
+
+		if db_get simple-wifi-ap/wifi_ipv4_dns; then
+			# Only check if actually set
+			if [ -n "${RET}" ]; then
+				check_ipv4_address "$RET"
+			fi
+			if [ ${?} -eq 0 ]; then
+				wifi_ipv4_okay=1
+			else
+				db_input low simple-wifi-ap/wifi_ipv4_error
+				db_go
+				db_fset simple-wifi-ap/wifi_ipv4_dns seen false
+			fi
+		else
+			db_input low simple-wifi-ap/wifi_ipv4_error
+			db_go
+			db_fset simple-wifi-ap/wifi_ipv4_dns seen false
+		fi
+	done
+
+	# Get WiFi IPv4 gateway
+	##################################################
+	wifi_ipv4_okay=0
+	while [ "${wifi_ipv4_okay}" -eq 0 ]; do
+		# Get WiFi IPv4 address
+		db_input critical simple-wifi-ap/wifi_ipv4_gateway
+		db_go
+
+		if db_get simple-wifi-ap/wifi_ipv4_gateway; then
+			if [ -n "${RET}" ]; then
+				check_ipv4_address "$RET"
+			fi
+			if [ ${?} -eq 0 ]; then
+				wifi_ipv4_okay=1
+			else
+				db_input low simple-wifi-ap/wifi_ipv4_error
+				db_go
+				db_fset simple-wifi-ap/wifi_ipv4_gateway seen false
+			fi
+		else
+			db_input low simple-wifi-ap/wifi_ipv4_error
+			db_go
+			db_fset simple-wifi-ap/wifi_ipv4_gateway seen false
+		fi
+	done
+fi
 
 # This script runs twice as 'configure', need some way to detect that
 db_set simple-wifi-ap/state_locked true

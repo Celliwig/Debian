@@ -15,13 +15,61 @@ Type: string
 Description: WiFi Passphrase:
  This is the WPA2 passhrase used to sign in to the WiFi network.
  .
- The passphrase must be between 8 and 63 characters long.
- No passphrase disables WAP2 security.
+ The passphrase must be between 8 and 63 characters long, no passphrase disables WPA2 security.
 
 Template: simple-wifi-ap/wifi_psk_error
 Type: error
 Description: Invalid WiFi passphrase.
  The WiFi passphrase that was entered is invalid.
+
+Template: simple-wifi-ap/wifi_network_layout
+Type: select
+Choices: ${network_layouts}
+Description: WiFi network type:
+ Select WiFi network type.
+ .
+ Stand-alone, the WiFi network is seperate from other network interfaces on this machine.
+ .
+ Bridged, the WiFi network is connected to other network interfaces on this machine.
+
+Template: simple-wifi-ap/wifi_device
+Type: select
+Choices: ${wifi_devices}
+Description: WiFi device:
+ Select WiFi network device.
+
+Template: simple-wifi-ap/wifi_ipv4_config
+Type: select
+Choices: ${ipv4_options}
+Description: IPv4 configuration:
+ Select how the WiFi network is assigned an IPv4 address.
+ .
+ Disabled, no IP is assigned (which could leave your machine unreachable from the network).
+ .
+ Static, set an IP address for this machine manually.
+ .
+ Dynamic, set the machines IP address using an existing DHCP server.
+
+Template: simple-wifi-ap/wifi_ipv4_addressmask
+Type: string
+Default: 192.168.1.1/24
+Description: IPv4 address:
+ Please enter IPv4 network address for the Wifi device, with network mask (ie. a.b.c.d/ee).
+
+Template: simple-wifi-ap/wifi_ipv4_dns
+Type: string
+Description: IPv4 DNS address:
+ Please enter IPv4 DNS address.
+
+Template: simple-wifi-ap/wifi_ipv4_gateway
+Type: string
+Description: IPv4 gateway address:
+ Please enter IPv4 gateway address.
+
+Template: simple-wifi-ap/wifi_ipv4_error
+Type: error
+Description: Invalid IPv4 address.
+ The IPv4 address that was entered is invalid.
 
 Template: simple-wifi-ap/state_locked
 Type: boolean
