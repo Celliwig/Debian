@@ -1,0 +1,12 @@
+Package: simple-wifi-ap
+Version: 0.2
+Architecture: all
+Maintainer: Celliwig <celliwig@nym.hush.com>
+Installed-Size: 36
+Pre-Depends: bash, coreutils, debconf, grep, network-manager, sed
+Depends: dnsmasq
+Conflicts: dhcpcd5
+Section: embedded
+Priority: optional
+Description: Simple WiFi AP
+ Configures a simple WiFi Access Point

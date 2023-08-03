@@ -1,0 +1,348 @@
+#!/bin/bash
+
+# Don't exit on error
+#set -e
+
+# summary of how this script can be called:
+#       * <postinst> `configure' <most-recently-configured-version>
+#       * <old-postinst> `abort-upgrade' <new version>
+#       * <conflictor's-postinst> `abort-remove' `in-favour' <package>
+#         <new-version>
+#       * <deconfigured's-postinst> `abort-deconfigure' `in-favour'
+#         <failed-install-package> <version> `removing'
+#         <conflicting-package> <version>
+#
+# for details, see http://www.debian.org/doc/debian-policy/ or
+# the debian-policy package
+#
+
+. /usr/share/debconf/confmodule
+
+# Delete existing connection profiles
+nm_profile_delete_all() {
+	# List existing connections
+	for tmp_uuid in `nmcli --terse --fields UUID connection show`; do
+		nmcli --terse connection delete "${tmp_uuid}" &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to delete connection, UUID=\"${tmp_uuid}\""
+			exit 1
+		fi
+	done
+}
+
+# Create Wifi AP connection profile
+nm_profile_accesspoint_create() {
+	NM_BRIDGE_UUID="${1}"					# UUID of previously created bridge
+	NM_WIFI_PROFILENAME="Wi-Fi AP 1"			# NetworkManager profile name
+	NM_WIFI_SSID="DoNotConnect"				# Access Point SSID
+	#NM_WIFI_PSK="ReallyDoNotConnect"			# Access Point Passphrase
+	NM_WIFI_PSK=""						# Access Point Passphrase
+
+	# Look for 1st WiFi device
+	nm_dev=`nmcli --terse --fields DEVICE,TYPE  device status| grep -E '^.*:wifi$'| head -n 1`
+	# Extract device name
+	nm_dev="${nm_dev%*:wifi}"
+	# Check that a Wifi device actually exists
+	if [ -n "${nm_dev}" ]; then
+		echo "postinst: Found Wifi device: ${nm_dev}."
+	else
+		echo "postinst: No Wifi device found."
+		exit 1
+	fi
+
+	# Create WiFi AP profile (don't autoconnect until properly configured)
+	nmcli connection add type wifi ifname "${nm_dev}" con-name "${NM_WIFI_PROFILENAME}" autoconnect no ssid "${NM_WIFI_SSID}" &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to create AP connection profile."
+		exit 1
+	fi
+
+	# Get created connection UUID
+	nm_uuid=`nmcli --terse --fields "connection.uuid" connection show "${NM_WIFI_PROFILENAME}" 2>/dev/null`
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to find AP connection profile."
+		exit 1
+	fi
+	nm_uuid="${nm_uuid#connection.uuid:*}"
+
+	# Configure as Access Point (Band hardwired to bg)
+	nmcli connection modify "${nm_uuid}" 802-11-wireless.mode ap 802-11-wireless.band bg &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to configure as AP."
+		exit 1
+	fi
+
+	# Configure Access Point IPv6 settings
+	nmcli connection modify "${nm_uuid}" ipv6.method disable &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to configure AP IPv6 settings."
+		exit 1
+	fi
+
+	# Is this interface configured as part of a bridge
+	if [ -n "${NM_BRIDGE_UUID}" ]; then
+		# Configure Access Point IPv4 settings
+		nmcli connection modify "${nm_uuid}" ipv4.method disable &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to configure AP IPv4 settings."
+			exit 1
+		fi
+
+		nmcli connection modify "${nm_uuid}" master "${NM_BRIDGE_UUID}" slave-type bridge &>/dev/null
+	else
+		# Configure Access Point IPv4 settings
+		nmcli connection modify "${nm_uuid}" ipv4.method manual ipv4.addresses 192.168.1.1/24 ipv4.dns 192.168.1.1 &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to configure AP IPv4 settings."
+			exit 1
+		fi
+	fi
+
+	# If passphrase is set, configure security
+	if [ -n "${NM_WIFI_PSK}" ]; then
+		# Configure Access Point security passphrase
+		nmcli connection modify "${nm_uuid}" wifi-sec.key-mgmt wpa-psk &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to configure AP securtiy."
+			exit 1
+		fi
+		nmcli connection modify "${nm_uuid}" wifi-sec.psk "${NM_WIFI_PSK}" &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to configure AP passphrase."
+			exit 1
+		fi
+	fi
+
+	# Turn on Wifi (it might be off)
+	nmcli wifi on &>/dev/null
+	# Can this fail, and still be okay? No power control?
+#	if [ ${?} -ne 0 ]; then
+#		echo "postinst: Failed to power on Wifi."
+#		exit 1
+#	fi
+
+	# Now configure as autoconnect
+	nmcli connection modify "${nm_uuid}" autoconnect yes &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to configure AP autoconnect."
+		exit 1
+	fi
+}
+
+# Create bridge connection profile
+nm_profile_bridge_create() {
+	NM_BRIDGE_DEV="br0"
+	NM_BRIDGE_PROFILENAME="bridge-${NM_BRIDGE_DEV}"
+
+	nmcli connection add type bridge ifname "${NM_BRIDGE_DEV}" con-name "${NM_BRIDGE_PROFILENAME}" connection.permissions "user:root" autoconnect yes &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to create bridge connection profile."
+		exit 1
+	fi
+
+	# Get created connection UUID
+	nm_uuid=`nmcli --terse --fields "connection.uuid" connection show "${NM_BRIDGE_PROFILENAME}" 2>/dev/null`
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to find bridge connection profile."
+		exit 1
+	fi
+	nm_uuid="${nm_uuid#connection.uuid:*}"
+
+	# Configure Access Point IPv4 settings
+	nmcli connection modify "${nm_uuid}" ipv4.method manual ipv4.addresses 192.168.1.1/24 ipv4.dns 192.168.1.1 &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to configure AP IPv4 settings."
+		exit 1
+	fi
+
+	# Configure Access Point IPv6 settings
+	nmcli connection modify "${nm_uuid}" ipv6.method disable &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to configure AP IPv6 settings."
+		exit 1
+	fi
+
+	# Return this so other functions can use it
+	echo "${nm_uuid}"
+}
+
+# Add raw interfaces to the bridge
+nm_bridge_interfaces_add() {
+	NM_BRIDGE_UUID="${1}"
+
+	# Look for 1st Ethernet device
+	nm_dev=`nmcli --terse --fields DEVICE,TYPE device status| grep -E '^.*:ethernet$'| head -n 1`
+	# Extract device name
+	nm_dev="${nm_dev%*:ethernet}"
+	# Check that a Wifi device actually exists
+	if [ -n "${nm_dev}" ]; then
+		echo "postinst: Found Ethernet device: ${nm_dev}."
+
+		nmcli connection add type ethernet ifname "${nm_dev}" master "${NM_BRIDGE_UUID}" &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to add bridge interface."
+			exit 1
+		fi
+	fi
+}
+
+# Configure dnsmasq DHCP server
+dhcp_configure_dnsmasq() {
+	DHCP_DEV="${1}"
+	DHCP_DOMAIN="router.lan"
+
+	# Create/overwrite '/etc/default/dnsmasq' file
+	cat > "/etc/default/dnsmasq" << EOF
+# This file has six functions:
+# 1) to completely disable starting this dnsmasq instance
+# 2) to set DOMAIN_SUFFIX by running \`dnsdomainname\`
+# 3) to select an alternative config file
+#    by setting DNSMASQ_OPTS to --conf-file=<file>
+# 4) to tell dnsmasq to read the files in /etc/dnsmasq.d for
+#    more configuration variables.
+# 5) to stop the resolvconf package from controlling dnsmasq's
+#    idea of which upstream nameservers to use.
+# 6) to avoid using this dnsmasq instance as the system's default resolver
+#    by setting DNSMASQ_EXCEPT="lo"
+# For upgraders from very old versions, all the shell variables set
+# here in previous versions are still honored by the init script
+# so if you just keep your old version of this file nothing will break.
+
+DOMAIN_SUFFIX="${DHCP_DOMAIN}"
+#DNSMASQ_OPTS="--conf-file=/etc/dnsmasq.alt"
+
+# Whether or not to run the dnsmasq daemon; set to 0 to disable.
+# Note that this is only valid when using SYSV init. For systemd,
+# use "systemctl disable dnsmasq"
+ENABLED=1
+
+# By default search this drop directory for configuration options.
+# Libvirt leaves a file here to make the system dnsmasq play nice.
+# Comment out this line if you don't want this. The dpkg-* are file
+# endings which cause dnsmasq to skip that file. This avoids pulling
+# in backups made by dpkg.
+CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
+
+# If the resolvconf package is installed, dnsmasq will use its output
+# rather than the contents of /etc/resolv.conf to find upstream
+# nameservers. Uncommenting this line inhibits this behaviour.
+# Note that including a "resolv-file=<filename>" line in
+# /etc/dnsmasq.conf is not enough to override resolvconf if it is
+# installed: the line below must be uncommented.
+#IGNORE_RESOLVCONF=yes
+
+# If the resolvconf package is installed, dnsmasq will tell resolvconf
+# to use dnsmasq under 127.0.0.1 as the system's default resolver.
+# Uncommenting this line inhibits this behaviour.
+#DNSMASQ_EXCEPT="lo"
+EOF
+
+	# Create/overwrite '/etc/dnsmasq.d/simple-wifi-ap.conf' file
+	cat > "/etc/dnsmasq.d/simple-wifi-ap.conf" << EOF
+interface=${DHCP_DEV}
+        dhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h
+EOF
+
+	# Check for active interface
+	interface_timeout=15
+	while [ ${interface_timeout} -gt 0 ]; do
+		nmcli --terse device show "${DHCP_DEV}" &>/dev/null
+		if [ ${?} -eq 0 ]; then
+			break
+		fi
+		interface_timeout=$((${interface_timeout}-1))
+		sleep 1
+	done
+	if [ ${interface_timeout} -eq 0 ]; then
+		echo "postinst: Timed out waiting for bridge to become active."
+		exit 1
+	fi
+
+	# Restart dnsmasq DHCP server
+	systemctl restart dnsmasq.service &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to restart dnsmasq DHCP service."
+		exit 1
+	fi
+}
+
+# Configure ISC DHCP server
+dhcp_configure_isc() {
+	DHCP_DEV="${1}"
+	DHCP_DOMAIN="router.lan"
+
+	# Create/overwrite '/etc/default/isc-dhcp-server' file
+	cat > "/etc/default/isc-dhcp-server" << EOF
+# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)
+
+# Path to dhcpd's config file (default: /etc/dhcp/dhcpd.conf).
+#DHCPDv4_CONF=/etc/dhcp/dhcpd.conf
+#DHCPDv6_CONF=/etc/dhcp/dhcpd6.conf
+
+# Path to dhcpd's PID file (default: /var/run/dhcpd.pid).
+#DHCPDv4_PID=/var/run/dhcpd.pid
+#DHCPDv6_PID=/var/run/dhcpd6.pid
+
+# Additional options to start dhcpd with.
+#       Don't use options -cf or -pf here; use DHCPD_CONF/ DHCPD_PID instead
+#OPTIONS=""
+
+# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?
+#       Separate multiple interfaces with spaces, e.g. "eth0 eth1".
+INTERFACESv4="${DHCP_DEV}"
+#INTERFACESv6=""
+EOF
+
+	# Create/overwrite '/etc/dhcp/dhcpd.conf' file
+	cat > "/etc/dhcp/dhcpd.conf" << EOF
+option domain-name "${DHCP_DOMAIN}";
+option domain-name-servers ns1.${DHCP_DOMAIN};
+
+default-lease-time 600;
+max-lease-time 7200;
+
+ddns-update-style none;
+
+authoritative;
+
+subnet 192.168.1.0 netmask 255.255.255.0 {
+        range 192.168.1.100 192.168.1.200;
+}
+EOF
+
+	# Check for active interface
+	interface_timeout=15
+	while [ ${interface_timeout} -gt 0 ]; do
+		nmcli --terse device show "${DHCP_DEV}" &>/dev/null
+		if [ ${?} -eq 0 ]; then
+			break
+		fi
+		interface_timeout=$((${interface_timeout}-1))
+		sleep 1
+	done
+	if [ ${interface_timeout} -eq 0 ]; then
+		echo "postinst: Timed out waiting for bridge to become active."
+		exit 1
+	fi
+
+	# Restart ISC DHCP server
+	systemctl restart isc-dhcp-server.service &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to restart ISC DHCP service."
+		exit 1
+	fi
+}
+
+case "$1" in
+	configure)
+		nm_profile_delete_all
+		nm_build_uuid=`nm_profile_bridge_create`
+		nm_bridge_interfaces_add "${nm_build_uuid}"
+		nm_profile_accesspoint_create "${nm_build_uuid}"
+		dhcp_configure_dnsmasq "br0"
+	;;
+#	abort-upgrade)
+#	;;
+esac
+
+exit 0

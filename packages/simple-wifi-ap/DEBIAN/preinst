@@ -1,0 +1,31 @@
+#!/bin/bash -e
+#
+# summary of how this script can be called:
+#        * <new-preinst> install
+#        * <new-preinst> install <old-version>
+#        * <new-preinst> upgrade <old-version>
+#        * <old-preinst> abort-upgrade <new-version>
+#
+
+. /usr/share/debconf/confmodule
+
+case "$1" in
+	install)
+		# Ensure NetworkManager is running
+		systemctl enable NetworkManager.service &>/dev/null
+		systemctl start NetworkManager.service &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to restart NetworkManager service."
+			exit 1
+		fi
+		;;
+	upgrade|abort-upgrade)
+		echo "preinst: no-op"
+		;;
+	*)
+		echo "preinst: called with unknown argument \`$1'" >&2
+		exit 1
+		;;
+esac
+
+exit 0
