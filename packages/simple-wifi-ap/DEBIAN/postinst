@@ -298,7 +298,7 @@ CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
 EOF
 
 		# Generate DHCP range
-		dhcp_range=$(dhcp_range_generate)
+		dhcp_range=$(dhcp_range_generate "${DHCP_ADDRESSMASK}")
 		if [ ${?} -ne 0 ]; then
 			echo "postinst: Failed to generate DHCP range."
 			exit 1
