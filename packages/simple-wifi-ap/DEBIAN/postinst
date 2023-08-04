@@ -143,11 +143,11 @@ nm_profile_accesspoint_create() {
 
 # Create bridge connection profile
 nm_profile_bridge_create() {
-	NET_IPV4_METHOD="${1}"
-	NET_IPV4_ADDRESSMASK="${2}"
-	NET_IPV4_DNS="${3}"
-	NET_IPV4_GATEWAY="${4}"
-	NM_BRIDGE_DEV="br0"
+	NM_BRIDGE_DEV="${1}"					# Bridge Device
+	NET_IPV4_METHOD="${2}"
+	NET_IPV4_ADDRESSMASK="${3}"
+	NET_IPV4_DNS="${4}"
+	NET_IPV4_GATEWAY="${5}"
 	NM_BRIDGE_PROFILENAME="swap-${NM_BRIDGE_DEV}"
 
 	nmcli connection add type bridge ifname "${NM_BRIDGE_DEV}" con-name "${NM_BRIDGE_PROFILENAME}" connection.permissions "user:root" autoconnect yes &>/dev/null
@@ -197,27 +197,26 @@ nm_profile_bridge_create() {
 
 	# Return this so other functions can use it
 	echo "${nm_uuid}"
-#}
+}
 
-## Add raw interfaces to the bridge
-#nm_bridge_interfaces_add() {
-#	NM_BRIDGE_UUID="${1}"
-#
-#	# Look for 1st Ethernet device
-#	nm_dev=`nmcli --terse --fields DEVICE,TYPE device status| grep -E '^.*:ethernet$'| head -n 1`
-#	# Extract device name
-#	nm_dev="${nm_dev%*:ethernet}"
-#	# Check that a Wifi device actually exists
-#	if [ -n "${nm_dev}" ]; then
-#		echo "postinst: Found Ethernet device: ${nm_dev}."
-#
-#		nmcli connection add type ethernet ifname "${nm_dev}" master "${NM_BRIDGE_UUID}" &>/dev/null
-#		if [ ${?} -ne 0 ]; then
-#			echo "postinst: Failed to add bridge interface."
-#			exit 1
-#		fi
-#	fi
-#}
+# Add raw interfaces to the bridge
+nm_bridge_interfaces_add() {
+	NM_BRIDGE_UUID="${1}"
+
+	if db_get simple-wifi-ap/bridge_extra_devices; then
+		bridge_devices="$RET"
+
+		for bridge_device in "${bridge_devices}"; do
+			nm_bridge_profilename="swap-${bridge_device}"
+			echo "postinst: Adding bridge device: ${bridge_device}."
+			nmcli connection add type ethernet ifname "${bridge_device}" con-name "${nm_bridge_profilename}" master "${NM_BRIDGE_UUID}" &>/dev/null
+			if [ ${?} -ne 0 ]; then
+				echo "postinst: Failed to add bridge interface."
+				exit 1
+			fi
+		done
+	fi
+}
 
 ## Configure dnsmasq DHCP server
 #dhcp_configure_dnsmasq() {
@@ -415,12 +414,15 @@ case "$1" in
 		if [ "${NET_LAYOUT}" = Stand-Alone ]; then
 			# Create standalone Access Point profile
 			nm_profile_accesspoint_create "${NM_WIFI_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}" ""
-		elif [ "${NET_LAYOUT}" = Bridged]; then
-			nm_build_uuid=`nm_profile_bridge_create "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}"`
 
-#			nm_bridge_interfaces_add "${nm_build_uuid}"
-#			nm_profile_accesspoint_create "${nm_build_uuid}"
-#			dhcp_configure_dnsmasq "br0"
+#			dhcp_configure_dnsmasq "${NM_WIFI_DEVICE}"
+		elif [ "${NET_LAYOUT}" = Bridged]; then
+			NM_BRIDGE_DEVICE="br0"
+			nm_build_uuid=`nm_profile_bridge_create "${NM_BRIDGE_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}"`
+			nm_bridge_interfaces_add "${nm_build_uuid}"
+			nm_profile_accesspoint_create "${NM_WIFI_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}" "${nm_build_uuid}"
+
+#			dhcp_configure_dnsmasq "${NM_BRIDGE_DEVICE}"
 		fi
 	;;
 #	abort-upgrade)
