@@ -272,13 +272,40 @@ for tmp_option in "${nm_wifi_devices[@]}"; do
 	config_add_option "${tmp_option}" 0
 done
 
-db_subst simple-wifi-ap/wifi_device wifi_devices "$CONFIG_OPTIONS"
+db_subst simple-wifi-ap/wifi_device wifi_devices "${CONFIG_OPTIONS}"
 # Only set options on installation
 if [ "${CONFIG_TYPE}" = "configure" ] && db_get simple-wifi-ap/state_locked && [ "${RET}" = false ]; then
 	db_set simple-wifi-ap/wifi_device "${nm_wifi_devices[0]}"
 fi
 db_input high simple-wifi-ap/wifi_device
 db_go
+
+# Select bridge extra network devices
+##################################################
+# Only get IPv4 configuration if the 'simple-wifi-ap/wifi_network_layout' is 'Bridged'
+if db_get simple-wifi-ap/wifi_network_layout && [ "${RET}" = Bridged ]; then
+	CONFIG_OPTIONS=""
+	CONFIG_SELECTED_OPTIONS=""
+
+	nm_ethernet_devices=( $(nm_net_devices "ethernet") )
+	# Check that at least one ethernet device is available
+	if [ -z "${nm_ethernet_devices=}" ]; then
+		echo "simple-wifi-ap: No ethernet devices available."
+		exit 255
+	fi
+	# Load config options
+	for tmp_option in "${nm_ethernet_devices[@]}"; do
+		config_add_option "${tmp_option}" 1
+	done
+
+	db_subst simple-wifi-ap/bridge_extra_devices network_devices "${CONFIG_OPTIONS}"
+	# Only set options on installation
+	if [ "${CONFIG_TYPE}" = "configure" ] && db_get simple-wifi-ap/state_locked && [ "${RET}" = false ]; then
+		db_set simple-wifi-ap/bridge_extra_devices "${CONFIG_SELECTED_OPTIONS}"
+	fi
+	db_input high simple-wifi-ap/bridge_extra_devices
+	db_go
+fi
 
 # Select network IPv4 method
 ##################################################
@@ -302,6 +329,8 @@ fi
 db_input medium simple-wifi-ap/wifi_ipv4_method
 db_go
 
+# Get WiFi IPv4 static information
+##################################################
 # Only get IPv4 configuration if the 'simple-wifi-ap/wifi_ipv4_method' is 'Static'
 if db_get simple-wifi-ap/wifi_ipv4_method && [ "${RET}" = Static ]; then
 	# Get WiFi IPv4 address

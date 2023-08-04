@@ -38,6 +38,12 @@ Choices: ${wifi_devices}
 Description: WiFi device:
  Select WiFi network device.
 
+Template: simple-wifi-ap/bridge_extra_devices
+Type: multiselect
+Choices: ${network_devices}
+Description: Bridge devices:
+ Select additional network interfaces to add to bridge.
+
 Template: simple-wifi-ap/wifi_ipv4_method
 Type: select
 Choices: ${ipv4_options}
