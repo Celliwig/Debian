@@ -38,10 +38,10 @@ Choices: ${wifi_devices}
 Description: WiFi device:
  Select WiFi network device.
 
-Template: simple-wifi-ap/wifi_ipv4_config
+Template: simple-wifi-ap/wifi_ipv4_method
 Type: select
 Choices: ${ipv4_options}
-Description: IPv4 configuration:
+Description: IPv4 configuration method:
  Select how the WiFi network is assigned an IPv4 address.
  .
  Disabled, no IP is assigned (which could leave your machine unreachable from the network).
@@ -58,6 +58,7 @@ Description: IPv4 address:
 
 Template: simple-wifi-ap/wifi_ipv4_dns
 Type: string
+Default: 192.168.1.1
 Description: IPv4 DNS address:
  Please enter IPv4 DNS address.
 

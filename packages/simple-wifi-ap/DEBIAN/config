@@ -280,7 +280,7 @@ fi
 db_input high simple-wifi-ap/wifi_device
 db_go
 
-# Select network IPv4 config
+# Select network IPv4 method
 ##################################################
 CONFIG_OPTIONS=""
 CONFIG_SELECTED_OPTIONS=""
@@ -294,16 +294,16 @@ config_add_option "${NET_IPV4_DISABLED}" 0
 config_add_option "${NET_IPV4_STATIC}" 0
 config_add_option "${NET_IPV4_DHCP}" 0
 
-db_subst simple-wifi-ap/wifi_ipv4_config ipv4_options "${CONFIG_OPTIONS}"
+db_subst simple-wifi-ap/wifi_ipv4_method ipv4_options "${CONFIG_OPTIONS}"
 # Only set options on installation
 if [ "${CONFIG_TYPE}" = "configure" ] && db_get simple-wifi-ap/state_locked && [ "${RET}" = false ]; then
-        db_set simple-wifi-ap/wifi_ipv4_config "${NET_IPV4_STATIC}"
+        db_set simple-wifi-ap/wifi_ipv4_method "${NET_IPV4_STATIC}"
 fi
-db_input medium simple-wifi-ap/wifi_ipv4_config
+db_input medium simple-wifi-ap/wifi_ipv4_method
 db_go
 
-# Only get IPv4 configuration if the 'simple-wifi-ap/wifi_ipv4_config' is 'Static'
-if db_get simple-wifi-ap/wifi_ipv4_config && [ "${RET}" = Static ]; then
+# Only get IPv4 configuration if the 'simple-wifi-ap/wifi_ipv4_method' is 'Static'
+if db_get simple-wifi-ap/wifi_ipv4_method && [ "${RET}" = Static ]; then
 	# Get WiFi IPv4 address
 	##################################################
 	wifi_ipv4_okay=0
