@@ -32,26 +32,28 @@ nm_profile_delete_all() {
 
 # Create Wifi AP connection profile
 nm_profile_accesspoint_create() {
-	NM_BRIDGE_UUID="${1}"					# UUID of previously created bridge
-	NM_WIFI_PROFILENAME="Wi-Fi AP 1"			# NetworkManager profile name
-	NM_WIFI_SSID="DoNotConnect"				# Access Point SSID
-	#NM_WIFI_PSK="ReallyDoNotConnect"			# Access Point Passphrase
-	NM_WIFI_PSK=""						# Access Point Passphrase
-
-	# Look for 1st WiFi device
-	nm_dev=`nmcli --terse --fields DEVICE,TYPE  device status| grep -E '^.*:wifi$'| head -n 1`
-	# Extract device name
-	nm_dev="${nm_dev%*:wifi}"
-	# Check that a Wifi device actually exists
-	if [ -n "${nm_dev}" ]; then
-		echo "postinst: Found Wifi device: ${nm_dev}."
+	NM_WIFI_DEVICE="${1}"					# Wifi Device
+	NET_IPV4_METHOD="${2}"
+	NET_IPV4_ADDRESSMASK="${3}"
+	NET_IPV4_DNS="${4}"
+	NET_IPV4_GATEWAY="${5}"
+	NM_BRIDGE_UUID="${6}"					# UUID of previously created bridge
+	NM_WIFI_PROFILENAME="swap-ap1"				# NetworkManager profile name
+	if db_get simple-wifi-ap/wifi_ssid; then
+		NM_WIFI_SSID="${RET}"				# Access Point SSID
 	else
-		echo "postinst: No Wifi device found."
+		echo "postinst: Failed to get SSID"
+		exit 1
+	fi
+	if db_get simple-wifi-ap/wifi_psk; then
+		NM_WIFI_PSK="${RET}"				# Access Point Passphrase
+	else
+		echo "postinst: Failed to get passphrase"
 		exit 1
 	fi
 
 	# Create WiFi AP profile (don't autoconnect until properly configured)
-	nmcli connection add type wifi ifname "${nm_dev}" con-name "${NM_WIFI_PROFILENAME}" autoconnect no ssid "${NM_WIFI_SSID}" &>/dev/null
+	nmcli connection add type wifi ifname "${NM_WIFI_DEVICE}" con-name "${NM_WIFI_PROFILENAME}" autoconnect no ssid "${NM_WIFI_SSID}" &>/dev/null
 	if [ ${?} -ne 0 ]; then
 		echo "postinst: Failed to create AP connection profile."
 		exit 1
@@ -79,23 +81,33 @@ nm_profile_accesspoint_create() {
 		exit 1
 	fi
 
-	# Is this interface configured as part of a bridge
-	if [ -n "${NM_BRIDGE_UUID}" ]; then
+	# Configure IPv4 configuration method
+	if [ "${NET_IPV4_METHOD}" = Static ] && [ -z "${NM_BRIDGE_UUID}" ]; then
+		# Configure Access Point IPv4 settings
+		nmcli connection modify "${nm_uuid}" ipv4.method manual ipv4.addresses "${NET_IPV4_ADDRESSMASK}" ipv4.dns "${NET_IPV4_DNS}" ipv4.gateway "${NET_IPV4_GATEWAY}" &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to configure AP IPv4 settings."
+			exit 1
+		fi
+	elif [ "${NET_IPV4_METHOD}" = Dynamic ] && [ -z "${NM_BRIDGE_UUID}" ]; then
+		# Configure Access Point IPv4 settings
+		nmcli connection modify "${nm_uuid}" ipv4.method auto &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to configure AP IPv4 settings."
+			exit 1
+		fi
+	else
 		# Configure Access Point IPv4 settings
 		nmcli connection modify "${nm_uuid}" ipv4.method disable &>/dev/null
 		if [ ${?} -ne 0 ]; then
 			echo "postinst: Failed to configure AP IPv4 settings."
 			exit 1
 		fi
+	fi
 
+	# Add to bridge if bridge UUID specified
+	if [ -n "${NM_BRIDGE_UUID}" ]; then
 		nmcli connection modify "${nm_uuid}" master "${NM_BRIDGE_UUID}" slave-type bridge &>/dev/null
-	else
-		# Configure Access Point IPv4 settings
-		nmcli connection modify "${nm_uuid}" ipv4.method manual ipv4.addresses 192.168.1.1/24 ipv4.dns 192.168.1.1 &>/dev/null
-		if [ ${?} -ne 0 ]; then
-			echo "postinst: Failed to configure AP IPv4 settings."
-			exit 1
-		fi
 	fi
 
 	# If passphrase is set, configure security
@@ -129,62 +141,62 @@ nm_profile_accesspoint_create() {
 	fi
 }
 
-# Create bridge connection profile
-nm_profile_bridge_create() {
-	NM_BRIDGE_DEV="br0"
-	NM_BRIDGE_PROFILENAME="bridge-${NM_BRIDGE_DEV}"
+## Create bridge connection profile
+#nm_profile_bridge_create() {
+#	NM_BRIDGE_DEV="br0"
+#	NM_BRIDGE_PROFILENAME="bridge-${NM_BRIDGE_DEV}"
+#
+#	nmcli connection add type bridge ifname "${NM_BRIDGE_DEV}" con-name "${NM_BRIDGE_PROFILENAME}" connection.permissions "user:root" autoconnect yes &>/dev/null
+#	if [ ${?} -ne 0 ]; then
+#		echo "postinst: Failed to create bridge connection profile."
+#		exit 1
+#	fi
+#
+#	# Get created connection UUID
+#	nm_uuid=`nmcli --terse --fields "connection.uuid" connection show "${NM_BRIDGE_PROFILENAME}" 2>/dev/null`
+#	if [ ${?} -ne 0 ]; then
+#		echo "postinst: Failed to find bridge connection profile."
+#		exit 1
+#	fi
+#	nm_uuid="${nm_uuid#connection.uuid:*}"
+#
+#	# Configure Access Point IPv4 settings
+#	nmcli connection modify "${nm_uuid}" ipv4.method manual ipv4.addresses 192.168.1.1/24 ipv4.dns 192.168.1.1 &>/dev/null
+#	if [ ${?} -ne 0 ]; then
+#		echo "postinst: Failed to configure AP IPv4 settings."
+#		exit 1
+#	fi
+#
+#	# Configure Access Point IPv6 settings
+#	nmcli connection modify "${nm_uuid}" ipv6.method disable &>/dev/null
+#	if [ ${?} -ne 0 ]; then
+#		echo "postinst: Failed to configure AP IPv6 settings."
+#		exit 1
+#	fi
+#
+#	# Return this so other functions can use it
+#	echo "${nm_uuid}"
+#}
 
-	nmcli connection add type bridge ifname "${NM_BRIDGE_DEV}" con-name "${NM_BRIDGE_PROFILENAME}" connection.permissions "user:root" autoconnect yes &>/dev/null
-	if [ ${?} -ne 0 ]; then
-		echo "postinst: Failed to create bridge connection profile."
-		exit 1
-	fi
-
-	# Get created connection UUID
-	nm_uuid=`nmcli --terse --fields "connection.uuid" connection show "${NM_BRIDGE_PROFILENAME}" 2>/dev/null`
-	if [ ${?} -ne 0 ]; then
-		echo "postinst: Failed to find bridge connection profile."
-		exit 1
-	fi
-	nm_uuid="${nm_uuid#connection.uuid:*}"
-
-	# Configure Access Point IPv4 settings
-	nmcli connection modify "${nm_uuid}" ipv4.method manual ipv4.addresses 192.168.1.1/24 ipv4.dns 192.168.1.1 &>/dev/null
-	if [ ${?} -ne 0 ]; then
-		echo "postinst: Failed to configure AP IPv4 settings."
-		exit 1
-	fi
-
-	# Configure Access Point IPv6 settings
-	nmcli connection modify "${nm_uuid}" ipv6.method disable &>/dev/null
-	if [ ${?} -ne 0 ]; then
-		echo "postinst: Failed to configure AP IPv6 settings."
-		exit 1
-	fi
-
-	# Return this so other functions can use it
-	echo "${nm_uuid}"
-}
-
-# Add raw interfaces to the bridge
-nm_bridge_interfaces_add() {
-	NM_BRIDGE_UUID="${1}"
-
-	# Look for 1st Ethernet device
-	nm_dev=`nmcli --terse --fields DEVICE,TYPE device status| grep -E '^.*:ethernet$'| head -n 1`
-	# Extract device name
-	nm_dev="${nm_dev%*:ethernet}"
-	# Check that a Wifi device actually exists
-	if [ -n "${nm_dev}" ]; then
-		echo "postinst: Found Ethernet device: ${nm_dev}."
-
-		nmcli connection add type ethernet ifname "${nm_dev}" master "${NM_BRIDGE_UUID}" &>/dev/null
-		if [ ${?} -ne 0 ]; then
-			echo "postinst: Failed to add bridge interface."
-			exit 1
-		fi
-	fi
-}
+## Add raw interfaces to the bridge
+#nm_bridge_interfaces_add() {
+#	NM_BRIDGE_UUID="${1}"
+#
+#	# Look for 1st Ethernet device
+#	nm_dev=`nmcli --terse --fields DEVICE,TYPE device status| grep -E '^.*:ethernet$'| head -n 1`
+#	# Extract device name
+#	nm_dev="${nm_dev%*:ethernet}"
+#	# Check that a Wifi device actually exists
+#	if [ -n "${nm_dev}" ]; then
+#		echo "postinst: Found Ethernet device: ${nm_dev}."
+#
+#		nmcli connection add type ethernet ifname "${nm_dev}" master "${NM_BRIDGE_UUID}" &>/dev/null
+#		if [ ${?} -ne 0 ]; then
+#			echo "postinst: Failed to add bridge interface."
+#			exit 1
+#		fi
+#	fi
+#}
 
 # Configure dnsmasq DHCP server
 dhcp_configure_dnsmasq() {
@@ -335,11 +347,59 @@ EOF
 
 case "$1" in
 	configure)
+		if db_get simple-wifi-ap/wifi_network_layout; then
+			NET_LAYOUT="${RET}"						# Network Layout
+		else
+			echo "postinst: Failed to get network layout"
+			exit 1
+		fi
+		if db_get simple-wifi-ap/wifi_device; then
+			NM_WIFI_DEVICE="${RET}"						# Wifi Device
+		else
+			echo "postinst: Failed to get WiFi device"
+			exit 1
+		fi
+		if db_get simple-wifi-ap/wifi_ipv4_method; then
+			NET_IPV4_METHOD="${RET}"					# IPv4 method
+		else
+			echo "postinst: Failed to get IPv4 method"
+			exit 1
+		fi
+		NET_IPV4_ADDRESSMASK=""
+		NET_IPV4_DNS=""
+		NET_IPV4_GATEWAY=""
+		if [ "${NET_IPV4_METHOD}" = Static ]; then
+			if db_get simple-wifi-ap/wifi_ipv4_addressmask; then
+				NET_IPV4_ADDRESSMASK="${RET}"				# IPv4 Address/Subnet Mask
+			else
+				echo "postinst: Failed to get IPv4 address/mask"
+				exit 1
+			fi
+			if db_get simple-wifi-ap/wifi_ipv4_dns; then
+				NET_IPV4_DNS="${RET}"					# IPv4 DNS
+			else
+				echo "postinst: Failed to get IPv4 DNS server"
+				exit 1
+			fi
+			if db_get simple-wifi-ap/wifi_ipv4_gateway; then
+				NET_IPV4_GATEWAY="${RET}"				# IPv4 Gateway
+			else
+				echo "postinst: Failed to get IPv4 gateway"
+				exit 1
+			fi
+		fi
+
+		# Delete existing profiles
 		nm_profile_delete_all
-		nm_build_uuid=`nm_profile_bridge_create`
-		nm_bridge_interfaces_add "${nm_build_uuid}"
-		nm_profile_accesspoint_create "${nm_build_uuid}"
-		dhcp_configure_dnsmasq "br0"
+		if [ "${NET_LAYOUT}" = Stand-Alone ]; then
+			# Create standalone Access Point profile
+			nm_profile_accesspoint_create "${NM_WIFI_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}" ""
+		elif [ "${NET_LAYOUT}" = Bridged]; then
+#			nm_build_uuid=`nm_profile_bridge_create`
+#			nm_bridge_interfaces_add "${nm_build_uuid}"
+#			nm_profile_accesspoint_create "${nm_build_uuid}"
+#			dhcp_configure_dnsmasq "br0"
+		fi
 	;;
 #	abort-upgrade)
 #	;;
