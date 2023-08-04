@@ -476,7 +476,7 @@ case "$1" in
 			nm_profile_accesspoint_create "${NM_WIFI_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}" ""
 
 			dhcp_configure_dnsmasq "${NM_WIFI_DEVICE}" "${NET_IPV4_ADDRESSMASK}" "${DHCP_DOMAIN}" "${dhcpd_enable}"
-		elif [ "${NET_LAYOUT}" = Bridged]; then
+		elif [ "${NET_LAYOUT}" = Bridged ]; then
 			NM_BRIDGE_DEVICE="br0"
 			nm_build_uuid=`nm_profile_bridge_create "${NM_BRIDGE_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}"`
 			nm_bridge_interfaces_add "${nm_build_uuid}"

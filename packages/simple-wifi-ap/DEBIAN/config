@@ -303,7 +303,7 @@ if db_get simple-wifi-ap/wifi_network_layout && [ "${RET}" = Bridged ]; then
 	if [ "${CONFIG_TYPE}" = "configure" ] && db_get simple-wifi-ap/state_locked && [ "${RET}" = false ]; then
 		db_set simple-wifi-ap/bridge_extra_devices "${CONFIG_SELECTED_OPTIONS}"
 	fi
-	db_input high simple-wifi-ap/bridge_extra_devices
+	db_input medium simple-wifi-ap/bridge_extra_devices
 	db_go
 fi
 
@@ -338,7 +338,7 @@ if db_get simple-wifi-ap/wifi_ipv4_method && [ "${RET}" = Static ]; then
 	wifi_ipv4_okay=0
 	while [ "${wifi_ipv4_okay}" -eq 0 ]; do
 		# Get WiFi IPv4 address
-		db_input critical simple-wifi-ap/wifi_ipv4_addressmask
+		db_input medium simple-wifi-ap/wifi_ipv4_addressmask
 		db_go
 
 		if db_get simple-wifi-ap/wifi_ipv4_addressmask; then
@@ -362,7 +362,7 @@ if db_get simple-wifi-ap/wifi_ipv4_method && [ "${RET}" = Static ]; then
 	wifi_ipv4_okay=0
 	while [ "${wifi_ipv4_okay}" -eq 0 ]; do
 		# Get WiFi IPv4 address
-		db_input critical simple-wifi-ap/wifi_ipv4_dns
+		db_input medium simple-wifi-ap/wifi_ipv4_dns
 		db_go
 
 		if db_get simple-wifi-ap/wifi_ipv4_dns; then
@@ -389,7 +389,7 @@ if db_get simple-wifi-ap/wifi_ipv4_method && [ "${RET}" = Static ]; then
 	wifi_ipv4_okay=0
 	while [ "${wifi_ipv4_okay}" -eq 0 ]; do
 		# Get WiFi IPv4 address
-		db_input critical simple-wifi-ap/wifi_ipv4_gateway
+		db_input medium simple-wifi-ap/wifi_ipv4_gateway
 		db_go
 
 		if db_get simple-wifi-ap/wifi_ipv4_gateway; then
