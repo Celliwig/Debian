@@ -218,85 +218,138 @@ nm_bridge_interfaces_add() {
 	fi
 }
 
-## Configure dnsmasq DHCP server
-#dhcp_configure_dnsmasq() {
-#	DHCP_DEV="${1}"
-#	DHCP_DOMAIN="router.lan"
-#
-#	# Create/overwrite '/etc/default/dnsmasq' file
-#	cat > "/etc/default/dnsmasq" << EOF
-## This file has six functions:
-## 1) to completely disable starting this dnsmasq instance
-## 2) to set DOMAIN_SUFFIX by running \`dnsdomainname\`
-## 3) to select an alternative config file
-##    by setting DNSMASQ_OPTS to --conf-file=<file>
-## 4) to tell dnsmasq to read the files in /etc/dnsmasq.d for
-##    more configuration variables.
-## 5) to stop the resolvconf package from controlling dnsmasq's
-##    idea of which upstream nameservers to use.
-## 6) to avoid using this dnsmasq instance as the system's default resolver
-##    by setting DNSMASQ_EXCEPT="lo"
-## For upgraders from very old versions, all the shell variables set
-## here in previous versions are still honored by the init script
-## so if you just keep your old version of this file nothing will break.
-#
-#DOMAIN_SUFFIX="${DHCP_DOMAIN}"
-##DNSMASQ_OPTS="--conf-file=/etc/dnsmasq.alt"
-#
-## Whether or not to run the dnsmasq daemon; set to 0 to disable.
-## Note that this is only valid when using SYSV init. For systemd,
-## use "systemctl disable dnsmasq"
-#ENABLED=1
-#
-## By default search this drop directory for configuration options.
-## Libvirt leaves a file here to make the system dnsmasq play nice.
-## Comment out this line if you don't want this. The dpkg-* are file
-## endings which cause dnsmasq to skip that file. This avoids pulling
-## in backups made by dpkg.
-#CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
-#
-## If the resolvconf package is installed, dnsmasq will use its output
-## rather than the contents of /etc/resolv.conf to find upstream
-## nameservers. Uncommenting this line inhibits this behaviour.
-## Note that including a "resolv-file=<filename>" line in
-## /etc/dnsmasq.conf is not enough to override resolvconf if it is
-## installed: the line below must be uncommented.
-##IGNORE_RESOLVCONF=yes
-#
-## If the resolvconf package is installed, dnsmasq will tell resolvconf
-## to use dnsmasq under 127.0.0.1 as the system's default resolver.
-## Uncommenting this line inhibits this behaviour.
-##DNSMASQ_EXCEPT="lo"
-#EOF
-#
-#	# Create/overwrite '/etc/dnsmasq.d/simple-wifi-ap.conf' file
-#	cat > "/etc/dnsmasq.d/simple-wifi-ap.conf" << EOF
-#interface=${DHCP_DEV}
-#        dhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h
-#EOF
-#
-#	# Check for active interface
-#	interface_timeout=15
-#	while [ ${interface_timeout} -gt 0 ]; do
-#		nmcli --terse device show "${DHCP_DEV}" &>/dev/null
-#		if [ ${?} -eq 0 ]; then
-#			break
-#		fi
-#		interface_timeout=$((${interface_timeout}-1))
-#		sleep 1
-#	done
-#	if [ ${interface_timeout} -eq 0 ]; then
-#		echo "postinst: Timed out waiting for bridge to become active."
-#		exit 1
-#	fi
-#
-#	# Restart dnsmasq DHCP server
-#	systemctl restart dnsmasq.service &>/dev/null
-#	if [ ${?} -ne 0 ]; then
-#		echo "postinst: Failed to restart dnsmasq DHCP service."
-#		exit 1
-#	fi
-#}
+# Generate DHCP range from address mask
+dhcp_range_generate() {
+	DHCP_ADDRESSMASK="${1}"
+
+	# Identify & parse passed data (address)
+	rslt=`echo "${DHCP_ADDRESSMASK}"| sed -E 's|^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$| \1 \2 \3 \4 \5 |'`
+	if [ ${?} -eq 0 ]; then
+		# Convert to array
+		rslt=( ${rslt} )
+		# Force to number
+		rslt[0]=$((${rslt[0]}+0))
+		rslt[1]=$((${rslt[1]}+0))
+		rslt[2]=$((${rslt[2]}+0))
+		rslt[3]=$((${rslt[3]}+0))
+		rslt[4]=$((${rslt[4]}+0))
+		if [ "${rslt[4]}" -eq 24 ]; then
+			echo " ${rslt[0]}.${rslt[1]}.${rslt[2]}.100 ${rslt[0]}.${rslt[1]}.${rslt[2]}.200 255.255.255.0 "
+			return 0
+		fi
+	fi
+	return 1
+}
+
+# Configure dnsmasq DHCP server
+dhcp_configure_dnsmasq() {
+	DHCP_DEV="${1}"
+	DHCP_ADDRESSMASK="${2}"
+	DHCP_DOMAIN="${3}"
+	DHCP_ENABLE="${4}"
+
+	DHCP_DNSMASQ_FILE="/etc/dnsmasq.d/simple-wifi-ap.conf"
+
+	if [ "${DHCP_ENABLE}" -eq 1 ]; then
+		# Create/overwrite '/etc/default/dnsmasq' file
+		cat > "/etc/default/dnsmasq" << EOF
+# This file has six functions:
+# 1) to completely disable starting this dnsmasq instance
+# 2) to set DOMAIN_SUFFIX by running \`dnsdomainname\`
+# 3) to select an alternative config file
+#    by setting DNSMASQ_OPTS to --conf-file=<file>
+# 4) to tell dnsmasq to read the files in /etc/dnsmasq.d for
+#    more configuration variables.
+# 5) to stop the resolvconf package from controlling dnsmasq's
+#    idea of which upstream nameservers to use.
+# 6) to avoid using this dnsmasq instance as the system's default resolver
+#    by setting DNSMASQ_EXCEPT="lo"
+# For upgraders from very old versions, all the shell variables set
+# here in previous versions are still honored by the init script
+# so if you just keep your old version of this file nothing will break.
+
+DOMAIN_SUFFIX="${DHCP_DOMAIN}"
+#DNSMASQ_OPTS="--conf-file=/etc/dnsmasq.alt"
+
+# Whether or not to run the dnsmasq daemon; set to 0 to disable.
+# Note that this is only valid when using SYSV init. For systemd,
+# use "systemctl disable dnsmasq"
+ENABLED=1
+
+# By default search this drop directory for configuration options.
+# Libvirt leaves a file here to make the system dnsmasq play nice.
+# Comment out this line if you don't want this. The dpkg-* are file
+# endings which cause dnsmasq to skip that file. This avoids pulling
+# in backups made by dpkg.
+CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
+
+# If the resolvconf package is installed, dnsmasq will use its output
+# rather than the contents of /etc/resolv.conf to find upstream
+# nameservers. Uncommenting this line inhibits this behaviour.
+# Note that including a "resolv-file=<filename>" line in
+# /etc/dnsmasq.conf is not enough to override resolvconf if it is
+# installed: the line below must be uncommented.
+#IGNORE_RESOLVCONF=yes
+
+# If the resolvconf package is installed, dnsmasq will tell resolvconf
+# to use dnsmasq under 127.0.0.1 as the system's default resolver.
+# Uncommenting this line inhibits this behaviour.
+#DNSMASQ_EXCEPT="lo"
+EOF
+
+		# Generate DHCP range
+		dhcp_range=$(dhcp_range_generate)
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to generate DHCP range."
+			exit 1
+		fi
+		dhcp_range=( ${dhcp_range} )
+
+		# Create/overwrite '${DHCP_DNSMASQ_FILE}' file
+		cat > "${DHCP_DNSMASQ_FILE}" << EOF
+interface=${DHCP_DEV}
+	dhcp-range=${dhcp_range[0]},${dhcp_range[1]},${dhcp_range[2]},24h
+EOF
+
+		# Check for active interface
+		interface_timeout=15
+		while [ ${interface_timeout} -gt 0 ]; do
+			nmcli --terse device show "${DHCP_DEV}" &>/dev/null
+			if [ ${?} -eq 0 ]; then
+				break
+			fi
+			interface_timeout=$((${interface_timeout}-1))
+			sleep 1
+		done
+		if [ ${interface_timeout} -eq 0 ]; then
+			echo "postinst: Timed out waiting for bridge to become active."
+			exit 1
+		fi
+
+	else
+		# Remove file containing DHCP configuration
+		if [ -f "${DHCP_DNSMASQ_FILE}" ]; then
+			rm "${DHCP_DNSMASQ_FILE}" &>/dev/null
+			if [ ${?} -ne 0 ]; then
+				echo "postinst: Failed to delete dnsmasq DHCP file."
+				exit 1
+			fi
+		fi
+	fi
+
+	# Enable dnsmasq daemon
+	systemctl enable dnsmasq.service &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to enable dnsmasq service."
+		exit 1
+	fi
+	# Restart dnsmasq daemon
+	systemctl restart dnsmasq.service &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to restart dnsmasq service."
+		exit 1
+	fi
+}
 
 ## Configure ISC DHCP server
 #dhcp_configure_isc() {
@@ -409,20 +462,27 @@ case "$1" in
 			fi
 		fi
 
+		dhcpd_enable=0
+		# Check whether to enable DHCP server
+		if [ "${NET_IPV4_METHOD}" = Static ]; then
+			dhcpd_enable=1
+		fi
+		DHCP_DOMAIN="router.lan"
+
 		# Delete existing profiles
 		nm_profile_delete_all
 		if [ "${NET_LAYOUT}" = Stand-Alone ]; then
 			# Create standalone Access Point profile
 			nm_profile_accesspoint_create "${NM_WIFI_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}" ""
 
-#			dhcp_configure_dnsmasq "${NM_WIFI_DEVICE}"
+			dhcp_configure_dnsmasq "${NM_WIFI_DEVICE}" "${NET_IPV4_ADDRESSMASK}" "${DHCP_DOMAIN}" "${dhcpd_enable}"
 		elif [ "${NET_LAYOUT}" = Bridged]; then
 			NM_BRIDGE_DEVICE="br0"
 			nm_build_uuid=`nm_profile_bridge_create "${NM_BRIDGE_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}"`
 			nm_bridge_interfaces_add "${nm_build_uuid}"
 			nm_profile_accesspoint_create "${NM_WIFI_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}" "${nm_build_uuid}"
 
-#			dhcp_configure_dnsmasq "${NM_BRIDGE_DEVICE}"
+			dhcp_configure_dnsmasq "${NM_BRIDGE_DEVICE}" "${NET_IPV4_ADDRESSMASK}" "${DHCP_DOMAIN}" "${dhcpd_enable}"
 		fi
 	;;
 #	abort-upgrade)
