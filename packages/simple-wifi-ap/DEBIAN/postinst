@@ -141,41 +141,62 @@ nm_profile_accesspoint_create() {
 	fi
 }
 
-## Create bridge connection profile
-#nm_profile_bridge_create() {
-#	NM_BRIDGE_DEV="br0"
-#	NM_BRIDGE_PROFILENAME="bridge-${NM_BRIDGE_DEV}"
-#
-#	nmcli connection add type bridge ifname "${NM_BRIDGE_DEV}" con-name "${NM_BRIDGE_PROFILENAME}" connection.permissions "user:root" autoconnect yes &>/dev/null
-#	if [ ${?} -ne 0 ]; then
-#		echo "postinst: Failed to create bridge connection profile."
-#		exit 1
-#	fi
-#
-#	# Get created connection UUID
-#	nm_uuid=`nmcli --terse --fields "connection.uuid" connection show "${NM_BRIDGE_PROFILENAME}" 2>/dev/null`
-#	if [ ${?} -ne 0 ]; then
-#		echo "postinst: Failed to find bridge connection profile."
-#		exit 1
-#	fi
-#	nm_uuid="${nm_uuid#connection.uuid:*}"
-#
-#	# Configure Access Point IPv4 settings
-#	nmcli connection modify "${nm_uuid}" ipv4.method manual ipv4.addresses 192.168.1.1/24 ipv4.dns 192.168.1.1 &>/dev/null
-#	if [ ${?} -ne 0 ]; then
-#		echo "postinst: Failed to configure AP IPv4 settings."
-#		exit 1
-#	fi
-#
-#	# Configure Access Point IPv6 settings
-#	nmcli connection modify "${nm_uuid}" ipv6.method disable &>/dev/null
-#	if [ ${?} -ne 0 ]; then
-#		echo "postinst: Failed to configure AP IPv6 settings."
-#		exit 1
-#	fi
-#
-#	# Return this so other functions can use it
-#	echo "${nm_uuid}"
+# Create bridge connection profile
+nm_profile_bridge_create() {
+	NET_IPV4_METHOD="${1}"
+	NET_IPV4_ADDRESSMASK="${2}"
+	NET_IPV4_DNS="${3}"
+	NET_IPV4_GATEWAY="${4}"
+	NM_BRIDGE_DEV="br0"
+	NM_BRIDGE_PROFILENAME="swap-${NM_BRIDGE_DEV}"
+
+	nmcli connection add type bridge ifname "${NM_BRIDGE_DEV}" con-name "${NM_BRIDGE_PROFILENAME}" connection.permissions "user:root" autoconnect yes &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to create bridge connection profile."
+		exit 1
+	fi
+
+	# Get created connection UUID
+	nm_uuid=`nmcli --terse --fields "connection.uuid" connection show "${NM_BRIDGE_PROFILENAME}" 2>/dev/null`
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to find bridge connection profile."
+		exit 1
+	fi
+	nm_uuid="${nm_uuid#connection.uuid:*}"
+
+	# Configure Access Point IPv6 settings
+	nmcli connection modify "${nm_uuid}" ipv6.method disable &>/dev/null
+	if [ ${?} -ne 0 ]; then
+		echo "postinst: Failed to configure bridge IPv6 settings."
+		exit 1
+	fi
+
+	# Configure IPv4 configuration method
+	if [ "${NET_IPV4_METHOD}" = Static ]; then
+		# Configure Access Point IPv4 settings
+		nmcli connection modify "${nm_uuid}" ipv4.method manual ipv4.addresses "${NET_IPV4_ADDRESSMASK}" ipv4.dns "${NET_IPV4_DNS}" ipv4.gateway "${NET_IPV4_GATEWAY}" &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to configure bridge IPv4 settings."
+			exit 1
+		fi
+	elif [ "${NET_IPV4_METHOD}" = Dynamic ]; then
+		# Configure Access Point IPv4 settings
+		nmcli connection modify "${nm_uuid}" ipv4.method auto &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to configure bridge IPv4 settings."
+			exit 1
+		fi
+	else
+		# Configure Access Point IPv4 settings
+		nmcli connection modify "${nm_uuid}" ipv4.method disable &>/dev/null
+		if [ ${?} -ne 0 ]; then
+			echo "postinst: Failed to configure bridge IPv4 settings."
+			exit 1
+		fi
+	fi
+
+	# Return this so other functions can use it
+	echo "${nm_uuid}"
 #}
 
 ## Add raw interfaces to the bridge
@@ -198,152 +219,152 @@ nm_profile_accesspoint_create() {
 #	fi
 #}
 
-# Configure dnsmasq DHCP server
-dhcp_configure_dnsmasq() {
-	DHCP_DEV="${1}"
-	DHCP_DOMAIN="router.lan"
+## Configure dnsmasq DHCP server
+#dhcp_configure_dnsmasq() {
+#	DHCP_DEV="${1}"
+#	DHCP_DOMAIN="router.lan"
+#
+#	# Create/overwrite '/etc/default/dnsmasq' file
+#	cat > "/etc/default/dnsmasq" << EOF
+## This file has six functions:
+## 1) to completely disable starting this dnsmasq instance
+## 2) to set DOMAIN_SUFFIX by running \`dnsdomainname\`
+## 3) to select an alternative config file
+##    by setting DNSMASQ_OPTS to --conf-file=<file>
+## 4) to tell dnsmasq to read the files in /etc/dnsmasq.d for
+##    more configuration variables.
+## 5) to stop the resolvconf package from controlling dnsmasq's
+##    idea of which upstream nameservers to use.
+## 6) to avoid using this dnsmasq instance as the system's default resolver
+##    by setting DNSMASQ_EXCEPT="lo"
+## For upgraders from very old versions, all the shell variables set
+## here in previous versions are still honored by the init script
+## so if you just keep your old version of this file nothing will break.
+#
+#DOMAIN_SUFFIX="${DHCP_DOMAIN}"
+##DNSMASQ_OPTS="--conf-file=/etc/dnsmasq.alt"
+#
+## Whether or not to run the dnsmasq daemon; set to 0 to disable.
+## Note that this is only valid when using SYSV init. For systemd,
+## use "systemctl disable dnsmasq"
+#ENABLED=1
+#
+## By default search this drop directory for configuration options.
+## Libvirt leaves a file here to make the system dnsmasq play nice.
+## Comment out this line if you don't want this. The dpkg-* are file
+## endings which cause dnsmasq to skip that file. This avoids pulling
+## in backups made by dpkg.
+#CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
+#
+## If the resolvconf package is installed, dnsmasq will use its output
+## rather than the contents of /etc/resolv.conf to find upstream
+## nameservers. Uncommenting this line inhibits this behaviour.
+## Note that including a "resolv-file=<filename>" line in
+## /etc/dnsmasq.conf is not enough to override resolvconf if it is
+## installed: the line below must be uncommented.
+##IGNORE_RESOLVCONF=yes
+#
+## If the resolvconf package is installed, dnsmasq will tell resolvconf
+## to use dnsmasq under 127.0.0.1 as the system's default resolver.
+## Uncommenting this line inhibits this behaviour.
+##DNSMASQ_EXCEPT="lo"
+#EOF
+#
+#	# Create/overwrite '/etc/dnsmasq.d/simple-wifi-ap.conf' file
+#	cat > "/etc/dnsmasq.d/simple-wifi-ap.conf" << EOF
+#interface=${DHCP_DEV}
+#        dhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h
+#EOF
+#
+#	# Check for active interface
+#	interface_timeout=15
+#	while [ ${interface_timeout} -gt 0 ]; do
+#		nmcli --terse device show "${DHCP_DEV}" &>/dev/null
+#		if [ ${?} -eq 0 ]; then
+#			break
+#		fi
+#		interface_timeout=$((${interface_timeout}-1))
+#		sleep 1
+#	done
+#	if [ ${interface_timeout} -eq 0 ]; then
+#		echo "postinst: Timed out waiting for bridge to become active."
+#		exit 1
+#	fi
+#
+#	# Restart dnsmasq DHCP server
+#	systemctl restart dnsmasq.service &>/dev/null
+#	if [ ${?} -ne 0 ]; then
+#		echo "postinst: Failed to restart dnsmasq DHCP service."
+#		exit 1
+#	fi
+#}
 
-	# Create/overwrite '/etc/default/dnsmasq' file
-	cat > "/etc/default/dnsmasq" << EOF
-# This file has six functions:
-# 1) to completely disable starting this dnsmasq instance
-# 2) to set DOMAIN_SUFFIX by running \`dnsdomainname\`
-# 3) to select an alternative config file
-#    by setting DNSMASQ_OPTS to --conf-file=<file>
-# 4) to tell dnsmasq to read the files in /etc/dnsmasq.d for
-#    more configuration variables.
-# 5) to stop the resolvconf package from controlling dnsmasq's
-#    idea of which upstream nameservers to use.
-# 6) to avoid using this dnsmasq instance as the system's default resolver
-#    by setting DNSMASQ_EXCEPT="lo"
-# For upgraders from very old versions, all the shell variables set
-# here in previous versions are still honored by the init script
-# so if you just keep your old version of this file nothing will break.
-
-DOMAIN_SUFFIX="${DHCP_DOMAIN}"
-#DNSMASQ_OPTS="--conf-file=/etc/dnsmasq.alt"
-
-# Whether or not to run the dnsmasq daemon; set to 0 to disable.
-# Note that this is only valid when using SYSV init. For systemd,
-# use "systemctl disable dnsmasq"
-ENABLED=1
-
-# By default search this drop directory for configuration options.
-# Libvirt leaves a file here to make the system dnsmasq play nice.
-# Comment out this line if you don't want this. The dpkg-* are file
-# endings which cause dnsmasq to skip that file. This avoids pulling
-# in backups made by dpkg.
-CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
-
-# If the resolvconf package is installed, dnsmasq will use its output
-# rather than the contents of /etc/resolv.conf to find upstream
-# nameservers. Uncommenting this line inhibits this behaviour.
-# Note that including a "resolv-file=<filename>" line in
-# /etc/dnsmasq.conf is not enough to override resolvconf if it is
-# installed: the line below must be uncommented.
-#IGNORE_RESOLVCONF=yes
-
-# If the resolvconf package is installed, dnsmasq will tell resolvconf
-# to use dnsmasq under 127.0.0.1 as the system's default resolver.
-# Uncommenting this line inhibits this behaviour.
-#DNSMASQ_EXCEPT="lo"
-EOF
-
-	# Create/overwrite '/etc/dnsmasq.d/simple-wifi-ap.conf' file
-	cat > "/etc/dnsmasq.d/simple-wifi-ap.conf" << EOF
-interface=${DHCP_DEV}
-        dhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h
-EOF
-
-	# Check for active interface
-	interface_timeout=15
-	while [ ${interface_timeout} -gt 0 ]; do
-		nmcli --terse device show "${DHCP_DEV}" &>/dev/null
-		if [ ${?} -eq 0 ]; then
-			break
-		fi
-		interface_timeout=$((${interface_timeout}-1))
-		sleep 1
-	done
-	if [ ${interface_timeout} -eq 0 ]; then
-		echo "postinst: Timed out waiting for bridge to become active."
-		exit 1
-	fi
-
-	# Restart dnsmasq DHCP server
-	systemctl restart dnsmasq.service &>/dev/null
-	if [ ${?} -ne 0 ]; then
-		echo "postinst: Failed to restart dnsmasq DHCP service."
-		exit 1
-	fi
-}
-
-# Configure ISC DHCP server
-dhcp_configure_isc() {
-	DHCP_DEV="${1}"
-	DHCP_DOMAIN="router.lan"
-
-	# Create/overwrite '/etc/default/isc-dhcp-server' file
-	cat > "/etc/default/isc-dhcp-server" << EOF
-# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)
-
-# Path to dhcpd's config file (default: /etc/dhcp/dhcpd.conf).
-#DHCPDv4_CONF=/etc/dhcp/dhcpd.conf
-#DHCPDv6_CONF=/etc/dhcp/dhcpd6.conf
-
-# Path to dhcpd's PID file (default: /var/run/dhcpd.pid).
-#DHCPDv4_PID=/var/run/dhcpd.pid
-#DHCPDv6_PID=/var/run/dhcpd6.pid
-
-# Additional options to start dhcpd with.
-#       Don't use options -cf or -pf here; use DHCPD_CONF/ DHCPD_PID instead
-#OPTIONS=""
-
-# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?
-#       Separate multiple interfaces with spaces, e.g. "eth0 eth1".
-INTERFACESv4="${DHCP_DEV}"
-#INTERFACESv6=""
-EOF
-
-	# Create/overwrite '/etc/dhcp/dhcpd.conf' file
-	cat > "/etc/dhcp/dhcpd.conf" << EOF
-option domain-name "${DHCP_DOMAIN}";
-option domain-name-servers ns1.${DHCP_DOMAIN};
-
-default-lease-time 600;
-max-lease-time 7200;
-
-ddns-update-style none;
-
-authoritative;
-
-subnet 192.168.1.0 netmask 255.255.255.0 {
-        range 192.168.1.100 192.168.1.200;
-}
-EOF
-
-	# Check for active interface
-	interface_timeout=15
-	while [ ${interface_timeout} -gt 0 ]; do
-		nmcli --terse device show "${DHCP_DEV}" &>/dev/null
-		if [ ${?} -eq 0 ]; then
-			break
-		fi
-		interface_timeout=$((${interface_timeout}-1))
-		sleep 1
-	done
-	if [ ${interface_timeout} -eq 0 ]; then
-		echo "postinst: Timed out waiting for bridge to become active."
-		exit 1
-	fi
-
-	# Restart ISC DHCP server
-	systemctl restart isc-dhcp-server.service &>/dev/null
-	if [ ${?} -ne 0 ]; then
-		echo "postinst: Failed to restart ISC DHCP service."
-		exit 1
-	fi
-}
+## Configure ISC DHCP server
+#dhcp_configure_isc() {
+#	DHCP_DEV="${1}"
+#	DHCP_DOMAIN="router.lan"
+#
+#	# Create/overwrite '/etc/default/isc-dhcp-server' file
+#	cat > "/etc/default/isc-dhcp-server" << EOF
+## Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)
+#
+## Path to dhcpd's config file (default: /etc/dhcp/dhcpd.conf).
+##DHCPDv4_CONF=/etc/dhcp/dhcpd.conf
+##DHCPDv6_CONF=/etc/dhcp/dhcpd6.conf
+#
+## Path to dhcpd's PID file (default: /var/run/dhcpd.pid).
+##DHCPDv4_PID=/var/run/dhcpd.pid
+##DHCPDv6_PID=/var/run/dhcpd6.pid
+#
+## Additional options to start dhcpd with.
+##       Don't use options -cf or -pf here; use DHCPD_CONF/ DHCPD_PID instead
+##OPTIONS=""
+#
+## On what interfaces should the DHCP server (dhcpd) serve DHCP requests?
+##       Separate multiple interfaces with spaces, e.g. "eth0 eth1".
+#INTERFACESv4="${DHCP_DEV}"
+##INTERFACESv6=""
+#EOF
+#
+#	# Create/overwrite '/etc/dhcp/dhcpd.conf' file
+#	cat > "/etc/dhcp/dhcpd.conf" << EOF
+#option domain-name "${DHCP_DOMAIN}";
+#option domain-name-servers ns1.${DHCP_DOMAIN};
+#
+#default-lease-time 600;
+#max-lease-time 7200;
+#
+#ddns-update-style none;
+#
+#authoritative;
+#
+#subnet 192.168.1.0 netmask 255.255.255.0 {
+#        range 192.168.1.100 192.168.1.200;
+#}
+#EOF
+#
+#	# Check for active interface
+#	interface_timeout=15
+#	while [ ${interface_timeout} -gt 0 ]; do
+#		nmcli --terse device show "${DHCP_DEV}" &>/dev/null
+#		if [ ${?} -eq 0 ]; then
+#			break
+#		fi
+#		interface_timeout=$((${interface_timeout}-1))
+#		sleep 1
+#	done
+#	if [ ${interface_timeout} -eq 0 ]; then
+#		echo "postinst: Timed out waiting for bridge to become active."
+#		exit 1
+#	fi
+#
+#	# Restart ISC DHCP server
+#	systemctl restart isc-dhcp-server.service &>/dev/null
+#	if [ ${?} -ne 0 ]; then
+#		echo "postinst: Failed to restart ISC DHCP service."
+#		exit 1
+#	fi
+#}
 
 case "$1" in
 	configure)
@@ -395,7 +416,8 @@ case "$1" in
 			# Create standalone Access Point profile
 			nm_profile_accesspoint_create "${NM_WIFI_DEVICE}" "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}" ""
 		elif [ "${NET_LAYOUT}" = Bridged]; then
-#			nm_build_uuid=`nm_profile_bridge_create`
+			nm_build_uuid=`nm_profile_bridge_create "${NET_IPV4_METHOD}" "${NET_IPV4_ADDRESSMASK}" "${NET_IPV4_DNS}" "${NET_IPV4_GATEWAY}"`
+
 #			nm_bridge_interfaces_add "${nm_build_uuid}"
 #			nm_profile_accesspoint_create "${nm_build_uuid}"
 #			dhcp_configure_dnsmasq "br0"
